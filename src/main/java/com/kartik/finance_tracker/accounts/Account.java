@@ -10,14 +10,34 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.AccessLevel;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
+@Getter 
+@Setter 
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "accounts")
 public class Account {
+
+    public Account(User user, String name, AccountType type, String currency) {
+        this.id = UUID.randomUUID();
+        this.user = user;
+        this.name = name;
+        this.type = type;
+        this.currency = currency;
+        this.openingBalance = BigDecimal.ZERO;
+
+        OffsetDateTime now = OffsetDateTime.now();
+        this.createdAt = now;
+        this.updatedAt = now;
+    }
 
     @Id
     private UUID id;
