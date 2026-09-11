@@ -7,15 +7,15 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
-@Service 
+@Service
 public class AccountService {
 
     private final AccountRepository accountRepository;
     private final UserRepository userRepository;
 
     public AccountService(
-        AccountRepository accountRepository,
-        UserRepository userRepository
+            AccountRepository accountRepository,
+            UserRepository userRepository
     ) {
         this.accountRepository = accountRepository;
         this.userRepository = userRepository;
@@ -27,12 +27,17 @@ public class AccountService {
             AccountType type,
             String currency
     ) {
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        Account account = new Account(user, name, type, currency);
+        Account account = new Account(
+                user,
+                name,
+                type,
+                currency
+        );
 
         return accountRepository.save(account);
     }
-    
 }

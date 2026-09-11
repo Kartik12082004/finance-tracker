@@ -3,20 +3,17 @@ package com.kartik.finance_tracker.transactions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.Optional;
-import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import com.kartik.finance_tracker.accounts.Account;
+import com.kartik.finance_tracker.accounts.AccountBalanceService;
 import com.kartik.finance_tracker.accounts.AccountRepository;
 import com.kartik.finance_tracker.accounts.AccountType;
 import com.kartik.finance_tracker.categories.Category;
@@ -25,360 +22,178 @@ import com.kartik.finance_tracker.categories.CategoryType;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
-public class TransactionServiceTest {
+class TransactionServiceTest {
 
-    @Test
-    void createTransaction_shouldCreateExpense() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
+    private TransactionRepository transactionRepository;
+    private UserRepository userRepository;
+    private AccountRepository accountRepository;
+    private CategoryRepository categoryRepository;
+    private AccountBalanceService accountBalanceService;
 
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
+    private TransactionService transactionService;
 
-        User user = new User(
+    private User user;
+    private Account bankAccount;
+    private Account secondBankAccount;
+
+    @BeforeEach
+    void setUp() {
+
+        transactionRepository = mock(TransactionRepository.class);
+        userRepository = mock(UserRepository.class);
+        accountRepository = mock(AccountRepository.class);
+        categoryRepository = mock(CategoryRepository.class);
+        accountBalanceService = mock(AccountBalanceService.class);
+
+        transactionService = new TransactionService(
+                transactionRepository,
+                userRepository,
+                accountRepository,
+                categoryRepository,
+                accountBalanceService
+        );
+
+        user = new User(
                 "kartik@example.com",
                 "hashed-password",
                 "Kartik"
         );
 
-        Account account = new Account(
+        bankAccount = new Account(
                 user,
                 "HDFC Savings",
                 AccountType.BANK,
                 "INR"
         );
 
-        Category category = new Category(
-                user,
-                "Food",
-                CategoryType.EXPENSE,
-                null,
-                true
-        );
-
-        UUID userId = user.getId();
-        UUID accountId = account.getId();
-        UUID categoryId = category.getId();
-
-        OffsetDateTime occurredAt = OffsetDateTime.now();
-
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(accountId))
-                .thenReturn(Optional.of(account));
-        when(categoryRepository.findById(categoryId))
-                .thenReturn(Optional.of(category));
-
-        Transaction savedTransaction = new Transaction(
-                user,
-                account,
-                null,
-                category,
-                TransactionType.EXPENSE,
-                new BigDecimal("500.00"),
-                "Groceries",
-                occurredAt
-        );
-
-        when(transactionRepository.save(any(Transaction.class)))
-                .thenReturn(savedTransaction);
-
-        Transaction result = transactionService.createTransaction(
-                userId,
-                accountId,
-                null,
-                categoryId,
-                TransactionType.EXPENSE,
-                new BigDecimal("500.00"),
-                "Groceries",
-                occurredAt
-        );
-
-        assertThat(result).isSameAs(savedTransaction);
-
-        ArgumentCaptor<Transaction> transactionCaptor =
-                ArgumentCaptor.forClass(Transaction.class);
-
-        verify(transactionRepository).save(transactionCaptor.capture());
-
-        Transaction transaction =
-                transactionCaptor.getValue();
-
-        assertThat(transaction.getUser()).isSameAs(user);
-        assertThat(transaction.getAccount()).isSameAs(account);
-        assertThat(transaction.getCategory()).isSameAs(category);
-        assertThat(transaction.getType()).isEqualTo(TransactionType.EXPENSE);
-        assertThat(transaction.getAmount())
-                .isEqualByComparingTo("500.00");
-        assertThat(transaction.getDescription())
-                .isEqualTo("Groceries");
-        assertThat(transaction.getOccurredAt())
-                .isEqualTo(occurredAt);
-        assertThat(transaction.getDestinationAccount())
-                .isNull();
-    }
-
-
-    @Test
-    void createTransaction_shouldCreateIncome() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
-
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
-
-        User user = new User(
-                "kartik@example.com",
-                "hashed-password",
-                "Kartik"
-        );
-
-        Account account = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        Category category = new Category(
-                user,
-                "Salary",
-                CategoryType.INCOME,
-                null,
-                true
-        );
-
-        UUID userId = user.getId();
-        UUID accountId = account.getId();
-        UUID categoryId = category.getId();
-
-        OffsetDateTime occurredAt = OffsetDateTime.now();
-
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(accountId))
-                .thenReturn(Optional.of(account));
-        when(categoryRepository.findById(categoryId))
-                .thenReturn(Optional.of(category));
-
-        Transaction savedTransaction = new Transaction(
-                user,
-                account,
-                null,
-                category,
-                TransactionType.INCOME,
-                new BigDecimal("50000.00"),
-                "September Salary",
-                occurredAt
-        );
-
-        when(transactionRepository.save(any(Transaction.class)))
-                .thenReturn(savedTransaction);
-
-        Transaction result = transactionService.createTransaction(
-                userId,
-                accountId,
-                null,
-                categoryId,
-                TransactionType.INCOME,
-                new BigDecimal("50000.00"),
-                "September Salary",
-                occurredAt
-        );
-
-        assertThat(result).isSameAs(savedTransaction);
-
-        ArgumentCaptor<Transaction> transactionCaptor =
-                ArgumentCaptor.forClass(Transaction.class);
-
-        verify(transactionRepository).save(transactionCaptor.capture());
-
-        Transaction transaction =
-                transactionCaptor.getValue();
-
-        assertThat(transaction.getType())
-                .isEqualTo(TransactionType.INCOME);
-        assertThat(transaction.getAmount())
-                .isEqualByComparingTo("50000.00");
-        assertThat(transaction.getCategory())
-                .isSameAs(category);
-        assertThat(transaction.getDestinationAccount())
-                .isNull();
-    }
-
-
-    @Test
-    void createTransaction_shouldCreateTransfer() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
-
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
-
-        User user = new User(
-                "kartik@example.com",
-                "hashed-password",
-                "Kartik"
-        );
-
-        Account sourceAccount = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        Account destinationAccount = new Account(
+        secondBankAccount = new Account(
                 user,
                 "SBI Savings",
                 AccountType.BANK,
                 "INR"
         );
+    }
 
-        UUID userId = user.getId();
-        UUID sourceAccountId = sourceAccount.getId();
-        UUID destinationAccountId = destinationAccount.getId();
+    @Test
+    void createTransaction_shouldCreateExpense() {
+
+        Category category = category(
+                "Food",
+                CategoryType.EXPENSE
+        );
+
+        stubUserAndAccount(bankAccount);
+        stubCategory(category);
+
+        when(transactionRepository.save(any(Transaction.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(accountBalanceService.calculateBalance(bankAccount.getId()))
+                .thenReturn(new BigDecimal("10000.00"));
 
         OffsetDateTime occurredAt = OffsetDateTime.now();
 
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(sourceAccountId))
-                .thenReturn(Optional.of(sourceAccount));
-        when(accountRepository.findById(destinationAccountId))
-                .thenReturn(Optional.of(destinationAccount));
-
-        Transaction savedTransaction = new Transaction(
-                user,
-                sourceAccount,
-                destinationAccount,
-                null,
-                TransactionType.TRANSFER,
-                new BigDecimal("10000.00"),
-                "Transfer to SBI",
-                occurredAt
-        );
-
-        when(transactionRepository.save(any(Transaction.class)))
-                .thenReturn(savedTransaction);
-
         Transaction result = transactionService.createTransaction(
-                userId,
-                sourceAccountId,
-                destinationAccountId,
+                user.getId(),
+                bankAccount.getId(),
                 null,
-                TransactionType.TRANSFER,
-                new BigDecimal("10000.00"),
-                "Transfer to SBI",
+                category.getId(),
+                TransactionType.EXPENSE,
+                new BigDecimal("500.00"),
+                "Groceries",
                 occurredAt
         );
 
-        assertThat(result).isSameAs(savedTransaction);
+        assertThat(result.getUser()).isSameAs(user);
+        assertThat(result.getAccount()).isSameAs(bankAccount);
+        assertThat(result.getCategory()).isSameAs(category);
+        assertThat(result.getType()).isEqualTo(TransactionType.EXPENSE);
+        assertThat(result.getAmount()).isEqualByComparingTo("500.00");
+        assertThat(result.getDescription()).isEqualTo("Groceries");
+        assertThat(result.getOccurredAt()).isEqualTo(occurredAt);
+        assertThat(result.getDestinationAccount()).isNull();
 
-        ArgumentCaptor<Transaction> transactionCaptor =
-                ArgumentCaptor.forClass(Transaction.class);
-
-        verify(transactionRepository).save(transactionCaptor.capture());
-
-        Transaction transaction =
-                transactionCaptor.getValue();
-
-        assertThat(transaction.getType())
-                .isEqualTo(TransactionType.TRANSFER);
-        assertThat(transaction.getAccount())
-                .isSameAs(sourceAccount);
-        assertThat(transaction.getDestinationAccount())
-                .isSameAs(destinationAccount);
-        assertThat(transaction.getCategory())
-                .isNull();
-        assertThat(transaction.getAmount())
-                .isEqualByComparingTo("10000.00");
+        verify(transactionRepository).save(any(Transaction.class));
     }
 
+    @Test
+    void createTransaction_shouldCreateIncome() {
+
+        Category category = category(
+                "Salary",
+                CategoryType.INCOME
+        );
+
+        stubUserAndAccount(bankAccount);
+        stubCategory(category);
+
+        when(transactionRepository.save(any(Transaction.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Transaction result = transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                category.getId(),
+                TransactionType.INCOME,
+                new BigDecimal("50000.00"),
+                "September Salary",
+                OffsetDateTime.now()
+        );
+
+        assertThat(result.getType()).isEqualTo(TransactionType.INCOME);
+        assertThat(result.getAmount()).isEqualByComparingTo("50000.00");
+        assertThat(result.getCategory()).isSameAs(category);
+        assertThat(result.getDestinationAccount()).isNull();
+
+        verify(transactionRepository).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldCreateTransfer() {
+
+        stubUserAndAccount(bankAccount);
+
+        when(accountRepository.findById(secondBankAccount.getId()))
+                .thenReturn(Optional.of(secondBankAccount));
+
+        when(accountBalanceService.calculateBalance(bankAccount.getId()))
+                .thenReturn(new BigDecimal("20000.00"));
+
+        when(transactionRepository.save(any(Transaction.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Transaction result = transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                secondBankAccount.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("10000.00"),
+                "Transfer to SBI",
+                OffsetDateTime.now()
+        );
+
+        assertThat(result.getType()).isEqualTo(TransactionType.TRANSFER);
+        assertThat(result.getAccount()).isSameAs(bankAccount);
+        assertThat(result.getDestinationAccount())
+                .isSameAs(secondBankAccount);
+        assertThat(result.getCategory()).isNull();
+        assertThat(result.getAmount()).isEqualByComparingTo("10000.00");
+
+        verify(transactionRepository).save(any(Transaction.class));
+    }
 
     @Test
     void createTransaction_shouldThrowWhenAmountIsZero() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
 
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
-
-        User user = new User(
-                "kartik@example.com",
-                "hashed-password",
-                "Kartik"
-        );
-
-        Account account = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        UUID userId = user.getId();
-        UUID accountId = account.getId();
-
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(accountId))
-                .thenReturn(Optional.of(account));
+        stubUserAndAccount(bankAccount);
 
         assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        userId,
-                        accountId,
-                        null,
+                create(
                         null,
                         TransactionType.EXPENSE,
-                        BigDecimal.ZERO,
-                        "Invalid expense",
-                        OffsetDateTime.now()
+                        BigDecimal.ZERO
                 )
         )
                 .isInstanceOf(IllegalArgumentException.class)
@@ -387,58 +202,17 @@ public class TransactionServiceTest {
         verify(transactionRepository, never())
                 .save(any(Transaction.class));
     }
-
 
     @Test
     void createTransaction_shouldThrowWhenAmountIsNegative() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
 
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
-
-        User user = new User(
-                "kartik@example.com",
-                "hashed-password",
-                "Kartik"
-        );
-
-        Account account = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        UUID userId = user.getId();
-        UUID accountId = account.getId();
-
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(accountId))
-                .thenReturn(Optional.of(account));
+        stubUserAndAccount(bankAccount);
 
         assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        userId,
-                        accountId,
-                        null,
+                create(
                         null,
                         TransactionType.EXPENSE,
-                        new BigDecimal("-500.00"),
-                        "Invalid expense",
-                        OffsetDateTime.now()
+                        new BigDecimal("-500.00")
                 )
         )
                 .isInstanceOf(IllegalArgumentException.class)
@@ -448,57 +222,16 @@ public class TransactionServiceTest {
                 .save(any(Transaction.class));
     }
 
-
     @Test
     void createTransaction_shouldThrowWhenTypeIsNull() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
 
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
-
-        User user = new User(
-                "kartik@example.com",
-                "hashed-password",
-                "Kartik"
-        );
-
-        Account account = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        UUID userId = user.getId();
-        UUID accountId = account.getId();
-
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(accountId))
-                .thenReturn(Optional.of(account));
+        stubUserAndAccount(bankAccount);
 
         assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        userId,
-                        accountId,
+                create(
                         null,
                         null,
-                        null,
-                        new BigDecimal("500.00"),
-                        "Invalid transaction",
-                        OffsetDateTime.now()
+                        new BigDecimal("500.00")
                 )
         )
                 .isInstanceOf(IllegalArgumentException.class)
@@ -508,57 +241,16 @@ public class TransactionServiceTest {
                 .save(any(Transaction.class));
     }
 
-
     @Test
     void createTransaction_shouldThrowWhenCategoryIsMissing() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
 
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
-
-        User user = new User(
-                "kartik@example.com",
-                "hashed-password",
-                "Kartik"
-        );
-
-        Account account = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        UUID userId = user.getId();
-        UUID accountId = account.getId();
-
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(accountId))
-                .thenReturn(Optional.of(account));
+        stubUserAndAccount(bankAccount);
 
         assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        userId,
-                        accountId,
-                        null,
+                create(
                         null,
                         TransactionType.EXPENSE,
-                        new BigDecimal("500.00"),
-                        "Groceries",
-                        OffsetDateTime.now()
+                        new BigDecimal("500.00")
                 )
         )
                 .isInstanceOf(IllegalArgumentException.class)
@@ -568,64 +260,23 @@ public class TransactionServiceTest {
                 .save(any(Transaction.class));
     }
 
-
     @Test
     void createTransaction_shouldThrowWhenCategoryTypeDoesNotMatchTransactionType() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
 
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
-
-        User user = new User(
-                "kartik@example.com",
-                "hashed-password",
-                "Kartik"
-        );
-
-        Account account = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        Category incomeCategory = new Category(
-                user,
+        Category incomeCategory = category(
                 "Salary",
-                CategoryType.INCOME,
-                null,
-                true
+                CategoryType.INCOME
         );
 
-        UUID userId = user.getId();
-        UUID accountId = account.getId();
-        UUID categoryId = incomeCategory.getId();
-
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(accountId))
-                .thenReturn(Optional.of(account));
-        when(categoryRepository.findById(categoryId))
-                .thenReturn(Optional.of(incomeCategory));
+        stubUserAndAccount(bankAccount);
+        stubCategory(incomeCategory);
 
         assertThatThrownBy(() ->
                 transactionService.createTransaction(
-                        userId,
-                        accountId,
+                        user.getId(),
+                        bankAccount.getId(),
                         null,
-                        categoryId,
+                        incomeCategory.getId(),
                         TransactionType.EXPENSE,
                         new BigDecimal("500.00"),
                         "Invalid category",
@@ -639,74 +290,26 @@ public class TransactionServiceTest {
                 .save(any(Transaction.class));
     }
 
-
     @Test
     void createTransaction_shouldThrowWhenTransferHasCategory() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
 
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
-
-        User user = new User(
-                "kartik@example.com",
-                "hashed-password",
-                "Kartik"
-        );
-
-        Account sourceAccount = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        Account destinationAccount = new Account(
-                user,
-                "SBI Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        Category category = new Category(
-                user,
+        Category category = category(
                 "Food",
-                CategoryType.EXPENSE,
-                null,
-                true
+                CategoryType.EXPENSE
         );
 
-        UUID userId = user.getId();
-        UUID sourceAccountId = sourceAccount.getId();
-        UUID destinationAccountId = destinationAccount.getId();
-        UUID categoryId = category.getId();
+        stubUserAndAccount(bankAccount);
+        stubCategory(category);
 
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(sourceAccountId))
-                .thenReturn(Optional.of(sourceAccount));
-        when(accountRepository.findById(destinationAccountId))
-                .thenReturn(Optional.of(destinationAccount));
-        when(categoryRepository.findById(categoryId))
-                .thenReturn(Optional.of(category));
+        when(accountRepository.findById(secondBankAccount.getId()))
+                .thenReturn(Optional.of(secondBankAccount));
 
         assertThatThrownBy(() ->
                 transactionService.createTransaction(
-                        userId,
-                        sourceAccountId,
-                        destinationAccountId,
-                        categoryId,
+                        user.getId(),
+                        bankAccount.getId(),
+                        secondBankAccount.getId(),
+                        category.getId(),
                         TransactionType.TRANSFER,
                         new BigDecimal("10000.00"),
                         "Invalid transfer",
@@ -720,57 +323,16 @@ public class TransactionServiceTest {
                 .save(any(Transaction.class));
     }
 
-
     @Test
     void createTransaction_shouldThrowWhenTransferHasNoDestination() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
 
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
-
-        User user = new User(
-                "kartik@example.com",
-                "hashed-password",
-                "Kartik"
-        );
-
-        Account account = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        UUID userId = user.getId();
-        UUID accountId = account.getId();
-
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(accountId))
-                .thenReturn(Optional.of(account));
+        stubUserAndAccount(bankAccount);
 
         assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        userId,
-                        accountId,
-                        null,
+                create(
                         null,
                         TransactionType.TRANSFER,
-                        new BigDecimal("10000.00"),
-                        "Invalid transfer",
-                        OffsetDateTime.now()
+                        new BigDecimal("10000.00")
                 )
         )
                 .isInstanceOf(IllegalArgumentException.class)
@@ -780,52 +342,16 @@ public class TransactionServiceTest {
                 .save(any(Transaction.class));
     }
 
-
     @Test
     void createTransaction_shouldThrowWhenSourceAndDestinationAreSame() {
-        TransactionRepository transactionRepository =
-                mock(TransactionRepository.class);
-        UserRepository userRepository =
-                mock(UserRepository.class);
-        AccountRepository accountRepository =
-                mock(AccountRepository.class);
-        CategoryRepository categoryRepository =
-                mock(CategoryRepository.class);
 
-        TransactionService transactionService =
-                new TransactionService(
-                        transactionRepository,
-                        userRepository,
-                        accountRepository,
-                        categoryRepository
-                );
-
-        User user = new User(
-                "kartik@example.com",
-                "hashed-password",
-                "Kartik"
-        );
-
-        Account account = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        UUID userId = user.getId();
-        UUID accountId = account.getId();
-
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(user));
-        when(accountRepository.findById(accountId))
-                .thenReturn(Optional.of(account));
+        stubUserAndAccount(bankAccount);
 
         assertThatThrownBy(() ->
                 transactionService.createTransaction(
-                        userId,
-                        accountId,
-                        accountId,
+                        user.getId(),
+                        bankAccount.getId(),
+                        bankAccount.getId(),
                         null,
                         TransactionType.TRANSFER,
                         new BigDecimal("10000.00"),
@@ -838,5 +364,50 @@ public class TransactionServiceTest {
 
         verify(transactionRepository, never())
                 .save(any(Transaction.class));
+    }
+
+    private Transaction create(
+            java.util.UUID categoryId,
+            TransactionType type,
+            BigDecimal amount
+    ) {
+        return transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                categoryId,
+                type,
+                amount,
+                "Test transaction",
+                OffsetDateTime.now()
+        );
+    }
+
+    private Category category(
+            String name,
+            CategoryType type
+    ) {
+        return new Category(
+                user,
+                name,
+                type,
+                null,
+                true
+        );
+    }
+
+    private void stubUserAndAccount(Account account) {
+
+        when(userRepository.findById(user.getId()))
+                .thenReturn(Optional.of(user));
+
+        when(accountRepository.findById(account.getId()))
+                .thenReturn(Optional.of(account));
+    }
+
+    private void stubCategory(Category category) {
+
+        when(categoryRepository.findById(category.getId()))
+                .thenReturn(Optional.of(category));
     }
 }

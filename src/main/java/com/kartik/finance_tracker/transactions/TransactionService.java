@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import com.kartik.finance_tracker.accounts.Account;
+import com.kartik.finance_tracker.accounts.AccountBalanceService;
 import com.kartik.finance_tracker.accounts.AccountRepository;
 import com.kartik.finance_tracker.categories.Category;
 import com.kartik.finance_tracker.categories.CategoryRepository;
@@ -21,17 +22,20 @@ public class TransactionService {
     private final UserRepository userRepository;
     private final AccountRepository accountRepository;
     private final CategoryRepository categoryRepository;
+    private final AccountBalanceService accountBalanceService;
 
     public TransactionService(
             TransactionRepository transactionRepository,
             UserRepository userRepository,
             AccountRepository accountRepository,
-            CategoryRepository categoryRepository
+            CategoryRepository categoryRepository,
+            AccountBalanceService accountBalanceService
     ) {
         this.transactionRepository = transactionRepository;
         this.userRepository = userRepository;
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
+        this.accountBalanceService = accountBalanceService;
     }
 
     public Transaction createTransaction(
@@ -44,6 +48,7 @@ public class TransactionService {
             String description,
             OffsetDateTime occurredAt
     ) {
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
