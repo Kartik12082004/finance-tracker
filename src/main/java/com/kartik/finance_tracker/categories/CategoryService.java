@@ -49,6 +49,13 @@ public class CategoryService {
                         "Parent category does not belong to user"
                 );
             }
+
+            // A child category must have the same type as its parent.
+            if (parent.getType() != type) {
+                throw new IllegalArgumentException(
+                        "Category type must match parent category type"
+                );
+            }
         }
 
         Category category = new Category(

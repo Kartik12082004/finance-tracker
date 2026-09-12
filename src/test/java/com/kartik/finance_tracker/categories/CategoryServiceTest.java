@@ -189,6 +189,53 @@ public class CategoryServiceTest {
     }
 
     @Test
+    void createCategory_shouldThrowWhenParentTypeDoesNotMatch() {
+        CategoryRepository categoryRepository =
+                mock(CategoryRepository.class);
+
+        UserRepository userRepository =
+                mock(UserRepository.class);
+
+        CategoryService categoryService =
+                new CategoryService(categoryRepository, userRepository);
+
+        User user = new User(
+                "kartik@example.com",
+                "hashed-password",
+                "Kartik"
+        );
+
+        UUID userId = user.getId();
+
+        when(userRepository.findById(userId))
+                .thenReturn(Optional.of(user));
+
+        // An EXPENSE child cannot be placed under an INCOME parent.
+        Category parent = new Category(
+                user,
+                "Salary",
+                CategoryType.INCOME,
+                null,
+                true
+        );
+
+        when(categoryRepository.findById(parent.getId()))
+                .thenReturn(Optional.of(parent));
+
+        assertThatThrownBy(() ->
+                categoryService.createCategory(
+                        userId,
+                        "Freelance",
+                        CategoryType.EXPENSE,
+                        parent.getId(),
+                        false
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Category type must match parent category type");
+    }
+
+    @Test
     void createCategory_shouldThrowWhenUserDoesNotExist() {
         CategoryRepository categoryRepository =
                 mock(CategoryRepository.class);
