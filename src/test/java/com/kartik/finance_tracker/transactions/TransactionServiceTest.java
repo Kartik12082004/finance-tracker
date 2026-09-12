@@ -53,12 +53,14 @@ class TransactionServiceTest {
                 accountBalanceService
         );
 
+        // All tests use one user so ownership rules can be tested consistently.
         user = new User(
                 "kartik@example.com",
                 "hashed-password",
                 "Kartik"
         );
 
+        // Create two accounts for testing transfers between accounts.
         bankAccount = new Account(
                 user,
                 "HDFC Savings",
@@ -77,6 +79,7 @@ class TransactionServiceTest {
     @Test
     void createTransaction_shouldCreateExpense() {
 
+        // Expenses require an EXPENSE category and reduce the source account balance.
         Category category = category(
                 "Food",
                 CategoryType.EXPENSE
@@ -88,6 +91,7 @@ class TransactionServiceTest {
         when(transactionRepository.save(any(Transaction.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
+        // The account has enough money for this expense.
         when(accountBalanceService.calculateBalance(bankAccount.getId()))
                 .thenReturn(new BigDecimal("10000.00"));
 
@@ -113,12 +117,14 @@ class TransactionServiceTest {
         assertThat(result.getOccurredAt()).isEqualTo(occurredAt);
         assertThat(result.getDestinationAccount()).isNull();
 
+        // A valid transaction should be persisted.
         verify(transactionRepository).save(any(Transaction.class));
     }
 
     @Test
     void createTransaction_shouldCreateIncome() {
 
+        // Income requires an INCOME category and increases the source account balance.
         Category category = category(
                 "Salary",
                 CategoryType.INCOME
@@ -152,11 +158,13 @@ class TransactionServiceTest {
     @Test
     void createTransaction_shouldCreateTransfer() {
 
+        // Transfers move money between accounts and therefore have no category.
         stubUserAndAccount(bankAccount);
 
         when(accountRepository.findById(secondBankAccount.getId()))
                 .thenReturn(Optional.of(secondBankAccount));
 
+        // The source account must have enough money for the transfer.
         when(accountBalanceService.calculateBalance(bankAccount.getId()))
                 .thenReturn(new BigDecimal("20000.00"));
 
@@ -185,10 +193,259 @@ class TransactionServiceTest {
     }
 
     @Test
+    void createTransaction_shouldAllowCreditCardPaymentWithinAmountOwed() {
+
+        Account creditCard = new Account(
+                user,
+                "HDFC Credit Card",
+                AccountType.CREDIT_CARD,
+                "INR"
+        );
+
+        stubUserAndAccount(bankAccount);
+
+        when(accountRepository.findById(creditCard.getId()))
+                .thenReturn(Optional.of(creditCard));
+
+        // The bank account has enough money to make the payment.
+        when(accountBalanceService.calculateBalance(bankAccount.getId()))
+                .thenReturn(new BigDecimal("10000.00"));
+
+        // The credit card currently has 5,000 of outstanding debt.
+        when(accountBalanceService.calculateBalance(creditCard.getId()))
+                .thenReturn(new BigDecimal("5000.00"));
+
+        when(transactionRepository.save(any(Transaction.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Paying 3,000 is valid because it does not exceed the 5,000 owed.
+        Transaction result = transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                creditCard.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("3000.00"),
+                "Credit card payment",
+                OffsetDateTime.now()
+        );
+
+        assertThat(result.getType()).isEqualTo(TransactionType.TRANSFER);
+        assertThat(result.getAccount()).isSameAs(bankAccount);
+        assertThat(result.getDestinationAccount()).isSameAs(creditCard);
+        assertThat(result.getAmount()).isEqualByComparingTo("3000.00");
+
+        verify(transactionRepository).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectCreditCardPaymentExceedingAmountOwed() {
+
+        Account creditCard = new Account(
+                user,
+                "HDFC Credit Card",
+                AccountType.CREDIT_CARD,
+                "INR"
+        );
+
+        stubUserAndAccount(bankAccount);
+
+        when(accountRepository.findById(creditCard.getId()))
+                .thenReturn(Optional.of(creditCard));
+
+        when(accountBalanceService.calculateBalance(bankAccount.getId()))
+                .thenReturn(new BigDecimal("10000.00"));
+
+        // Only 5,000 is currently owed on the credit card.
+        when(accountBalanceService.calculateBalance(creditCard.getId()))
+                .thenReturn(new BigDecimal("5000.00"));
+
+        // Phase 1 rejects payments that exceed the amount currently owed.
+        assertThatThrownBy(() ->
+                transactionService.createTransaction(
+                        user.getId(),
+                        bankAccount.getId(),
+                        creditCard.getId(),
+                        null,
+                        TransactionType.TRANSFER,
+                        new BigDecimal("6000.00"),
+                        "Credit card payment",
+                        OffsetDateTime.now()
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Credit card payment exceeds amount owed");
+
+        // Invalid transactions must never be persisted.
+        verify(transactionRepository, never())
+                .save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectExpenseWhenBalanceIsInsufficient() {
+
+        Category category = category(
+                "Food",
+                CategoryType.EXPENSE
+        );
+
+        stubUserAndAccount(bankAccount);
+        stubCategory(category);
+
+        // Bank accounts cannot go below zero through an expense.
+        when(accountBalanceService.calculateBalance(bankAccount.getId()))
+                .thenReturn(new BigDecimal("1000.00"));
+
+        // The requested expense is greater than the available balance.
+        assertThatThrownBy(() ->
+                transactionService.createTransaction(
+                        user.getId(),
+                        bankAccount.getId(),
+                        null,
+                        category.getId(),
+                        TransactionType.EXPENSE,
+                        new BigDecimal("1500.00"),
+                        "Groceries",
+                        OffsetDateTime.now()
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Insufficient funds");
+
+        verify(transactionRepository, never())
+                .save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectTransferWhenBalanceIsInsufficient() {
+
+        stubUserAndAccount(bankAccount);
+
+        when(accountRepository.findById(secondBankAccount.getId()))
+                .thenReturn(Optional.of(secondBankAccount));
+
+        // Bank accounts cannot transfer out more money than they currently hold.
+        when(accountBalanceService.calculateBalance(bankAccount.getId()))
+                .thenReturn(new BigDecimal("1000.00"));
+
+        assertThatThrownBy(() ->
+                transactionService.createTransaction(
+                        user.getId(),
+                        bankAccount.getId(),
+                        secondBankAccount.getId(),
+                        null,
+                        TransactionType.TRANSFER,
+                        new BigDecimal("1500.00"),
+                        "Transfer",
+                        OffsetDateTime.now()
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Insufficient funds");
+
+        verify(transactionRepository, never())
+                .save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectCreditCardAsTransferSource() {
+
+        Account creditCard = new Account(
+                user,
+                "HDFC Credit Card",
+                AccountType.CREDIT_CARD,
+                "INR"
+        );
+
+        stubUserAndAccount(creditCard);
+
+        when(accountRepository.findById(secondBankAccount.getId()))
+                .thenReturn(Optional.of(secondBankAccount));
+
+        // Phase 1 does not support credit-card cash advances.
+        // Therefore, a credit card cannot be the source of a transfer.
+        assertThatThrownBy(() ->
+                transactionService.createTransaction(
+                        user.getId(),
+                        creditCard.getId(),
+                        secondBankAccount.getId(),
+                        null,
+                        TransactionType.TRANSFER,
+                        new BigDecimal("1000.00"),
+                        "Cash advance",
+                        OffsetDateTime.now()
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Credit card cannot be the source of a transfer");
+
+        verify(transactionRepository, never())
+                .save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectTransferWithDifferentCurrencies() {
+
+        Account usdAccount = new Account(
+                user,
+                "USD Account",
+                AccountType.BANK,
+                "USD"
+        );
+
+        stubUserAndAccount(bankAccount);
+
+        when(accountRepository.findById(usdAccount.getId()))
+                .thenReturn(Optional.of(usdAccount));
+
+        // Phase 1 transfers do not support currency conversion.
+        // Source and destination accounts must therefore use the same currency.
+        assertThatThrownBy(() ->
+                transactionService.createTransaction(
+                        user.getId(),
+                        bankAccount.getId(),
+                        usdAccount.getId(),
+                        null,
+                        TransactionType.TRANSFER,
+                        new BigDecimal("1000.00"),
+                        "Currency mismatch",
+                        OffsetDateTime.now()
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Source and destination accounts must use the same currency");
+
+        verify(transactionRepository, never())
+                .save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectAmountWithMoreThanFourDecimalPlaces() {
+
+        stubUserAndAccount(bankAccount);
+
+        // Amounts are stored with a maximum precision of four decimal places.
+        // More precise values must be rejected instead of silently rounded.
+        assertThatThrownBy(() ->
+                create(
+                        null,
+                        TransactionType.EXPENSE,
+                        new BigDecimal("500.12345")
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Amount cannot have more than 4 decimal places");
+
+        verify(transactionRepository, never())
+                .save(any(Transaction.class));
+    }
+
+    @Test
     void createTransaction_shouldThrowWhenAmountIsZero() {
 
         stubUserAndAccount(bankAccount);
 
+        // A transaction must always represent a positive amount.
         assertThatThrownBy(() ->
                 create(
                         null,
@@ -208,6 +465,8 @@ class TransactionServiceTest {
 
         stubUserAndAccount(bankAccount);
 
+        // Negative transaction amounts are not allowed.
+        // Direction is represented by the transaction type instead.
         assertThatThrownBy(() ->
                 create(
                         null,
@@ -227,6 +486,8 @@ class TransactionServiceTest {
 
         stubUserAndAccount(bankAccount);
 
+        // Every transaction must explicitly declare whether it is income,
+        // expense, or transfer.
         assertThatThrownBy(() ->
                 create(
                         null,
@@ -246,6 +507,8 @@ class TransactionServiceTest {
 
         stubUserAndAccount(bankAccount);
 
+        // Income and expense transactions must have a category.
+        // Transfers are the only transaction type that does not use one.
         assertThatThrownBy(() ->
                 create(
                         null,
@@ -271,6 +534,7 @@ class TransactionServiceTest {
         stubUserAndAccount(bankAccount);
         stubCategory(incomeCategory);
 
+        // An EXPENSE transaction cannot use an INCOME category.
         assertThatThrownBy(() ->
                 transactionService.createTransaction(
                         user.getId(),
@@ -304,6 +568,8 @@ class TransactionServiceTest {
         when(accountRepository.findById(secondBankAccount.getId()))
                 .thenReturn(Optional.of(secondBankAccount));
 
+        // Transfers are account-to-account movements, so they do not belong
+        // to an income or expense category.
         assertThatThrownBy(() ->
                 transactionService.createTransaction(
                         user.getId(),
@@ -328,6 +594,7 @@ class TransactionServiceTest {
 
         stubUserAndAccount(bankAccount);
 
+        // A transfer must specify the account receiving the money.
         assertThatThrownBy(() ->
                 create(
                         null,
@@ -347,6 +614,8 @@ class TransactionServiceTest {
 
         stubUserAndAccount(bankAccount);
 
+        // A transfer between the same account has no meaningful financial effect
+        // and is therefore rejected.
         assertThatThrownBy(() ->
                 transactionService.createTransaction(
                         user.getId(),

@@ -28,6 +28,7 @@ public class AccountService {
             String currency
     ) {
 
+        // Verify that the account is being created for an existing user.
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 

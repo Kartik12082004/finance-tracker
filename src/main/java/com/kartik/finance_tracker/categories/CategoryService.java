@@ -7,12 +7,12 @@ import org.springframework.stereotype.Service;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
-@Service 
+@Service
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
-    
+
     public CategoryService(
             CategoryRepository categoryRepository,
             UserRepository userRepository
@@ -28,17 +28,26 @@ public class CategoryService {
             UUID parentId,
             boolean isDefault
     ) {
+
+        // A category must always belong to an existing user.
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         Category parent = null;
 
         if (parentId != null) {
-            parent = categoryRepository.findById(parentId)
-                    .orElseThrow(() -> new IllegalArgumentException("Parent category not found"));
 
+            // Find the requested parent before creating the category.
+            parent = categoryRepository.findById(parentId)
+                    .orElseThrow(() ->
+                            new IllegalArgumentException("Parent category not found"));
+
+            // Categories are user-owned, so a user cannot use another
+            // user's category as the parent of their own category.
             if (!parent.getUser().getId().equals(userId)) {
-                throw new IllegalArgumentException("Parent category does not belong to user");
+                throw new IllegalArgumentException(
+                        "Parent category does not belong to user"
+                );
             }
         }
 
@@ -52,5 +61,4 @@ public class CategoryService {
 
         return categoryRepository.save(category);
     }
-
 }

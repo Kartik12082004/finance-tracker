@@ -7,7 +7,6 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +34,7 @@ class AccountBalanceServiceTest {
                 transactionRepository
         );
 
+        // All test accounts and transactions belong to the same test user.
         user = new User(
                 "kartik@example.com",
                 "hashedpassword",
@@ -45,6 +45,7 @@ class AccountBalanceServiceTest {
     @Test
     void calculateBalance_shouldReturnOpeningBalance_whenNoTransactionsExist() {
 
+        // With no transactions, the current balance should equal the opening balance.
         Account account = account(
                 AccountType.BANK,
                 new BigDecimal("10000.00")
@@ -62,6 +63,8 @@ class AccountBalanceServiceTest {
     @Test
     void calculateBalance_shouldAddIncomeAndSubtractExpense_forBankAccount() {
 
+        // Normal asset accounts increase when money comes in
+        // and decrease when money is spent.
         Account account = account(
                 AccountType.BANK,
                 new BigDecimal("10000.00")
@@ -87,12 +90,15 @@ class AccountBalanceServiceTest {
         BigDecimal balance =
                 accountBalanceService.calculateBalance(account.getId());
 
+        // 10,000 opening + 5,000 income - 2,000 expense = 13,000.
         assertThat(balance).isEqualByComparingTo("13000.00");
     }
 
     @Test
     void calculateBalance_shouldHandleTransferForBankAccounts() {
 
+        // A transfer is neither income nor expense.
+        // It decreases the source account and increases the destination account.
         Account source = account(
                 AccountType.BANK,
                 new BigDecimal("10000.00")
@@ -103,6 +109,7 @@ class AccountBalanceServiceTest {
                 new BigDecimal("5000.00")
         );
 
+        // 3,000 leaves the source account.
         Transaction outgoingTransfer = transaction(
                 source,
                 destination,
@@ -110,6 +117,7 @@ class AccountBalanceServiceTest {
                 new BigDecimal("3000.00")
         );
 
+        // 2,000 is transferred back into the source account.
         Transaction incomingTransfer = transaction(
                 destination,
                 source,
@@ -128,17 +136,21 @@ class AccountBalanceServiceTest {
         BigDecimal balance =
                 accountBalanceService.calculateBalance(source.getId());
 
+        // 10,000 opening - 3,000 outgoing + 2,000 incoming = 9,000.
         assertThat(balance).isEqualByComparingTo("9000.00");
     }
 
     @Test
     void calculateBalance_shouldIncreaseDebt_whenCreditCardHasExpense() {
 
+        // Credit cards use a different balance convention:
+        // 0 means no debt, while a positive balance represents money owed.
         Account account = account(
                 AccountType.CREDIT_CARD,
                 BigDecimal.ZERO
         );
 
+        // Spending on a credit card increases the amount owed.
         Transaction expense = transaction(
                 account,
                 null,
@@ -152,6 +164,7 @@ class AccountBalanceServiceTest {
         BigDecimal balance =
                 accountBalanceService.calculateBalance(account.getId());
 
+        // The card now has 2,500 of outstanding debt.
         assertThat(balance).isEqualByComparingTo("2500.00");
     }
 
@@ -168,6 +181,8 @@ class AccountBalanceServiceTest {
                 new BigDecimal("10000.00")
         );
 
+        // A payment is represented as a transfer from the bank account
+        // into the credit card account.
         Transaction payment = transaction(
                 bankAccount,
                 creditCard,
@@ -181,12 +196,15 @@ class AccountBalanceServiceTest {
         BigDecimal balance =
                 accountBalanceService.calculateBalance(creditCard.getId());
 
+        // The payment creates a 3,000 credit because the card had no debt.
+        // A negative credit-card balance represents an overpayment/credit.
         assertThat(balance).isEqualByComparingTo("-3000.00");
     }
 
     @Test
     void calculateBalance_shouldReduceCreditCardDebt_whenRefundIsIncome() {
 
+        // A refund is represented as income for the credit card.
         Account account = account(
                 AccountType.CREDIT_CARD,
                 BigDecimal.ZERO
@@ -205,6 +223,7 @@ class AccountBalanceServiceTest {
         BigDecimal balance =
                 accountBalanceService.calculateBalance(account.getId());
 
+        // A refund reduces the amount owed and can create a card credit.
         assertThat(balance).isEqualByComparingTo("-1000.00");
     }
 

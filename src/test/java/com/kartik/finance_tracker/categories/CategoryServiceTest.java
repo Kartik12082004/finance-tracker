@@ -17,8 +17,8 @@ import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
 public class CategoryServiceTest {
-    
-    @Test 
+
+    @Test
     void createCategory_shouldSaveAndReturnCategory() {
         CategoryRepository categoryRepository =
                 mock(CategoryRepository.class);
@@ -29,6 +29,8 @@ public class CategoryServiceTest {
         CategoryService categoryService =
                 new CategoryService(categoryRepository, userRepository);
 
+        // Categories belong to a specific user, so an existing user
+        // must be found before creating the category.
         User user = new User(
                 "kartik@example.com",
                 "hashed-password",
@@ -40,6 +42,7 @@ public class CategoryServiceTest {
         when(userRepository.findById(userId))
                 .thenReturn(Optional.of(user));
 
+        // A top-level category has no parent.
         Category savedCategory = new Category(
                 user,
                 "Food",
@@ -59,33 +62,43 @@ public class CategoryServiceTest {
                 true
         );
 
+        // The service should return the category saved by the repository.
         assertThat(result).isSameAs(savedCategory);
 
+        // Verify that the service looked up the correct user.
         verify(userRepository).findById(userId);
 
         ArgumentCaptor<Category> categoryCaptor =
                 ArgumentCaptor.forClass(Category.class);
 
+        // Capture the category passed to the repository so its values
+        // can be verified independently of the mocked save result.
         verify(categoryRepository).save(categoryCaptor.capture());
 
         Category categoryPassedToRepository =
                 categoryCaptor.getValue();
 
+        // The category must belong to the requested user.
         assertThat(categoryPassedToRepository.getUser())
                 .isSameAs(user);
 
+        // Verify the supplied category details.
         assertThat(categoryPassedToRepository.getName())
                 .isEqualTo("Food");
 
         assertThat(categoryPassedToRepository.getType())
                 .isEqualTo(CategoryType.EXPENSE);
 
+        // This is a top-level category, so it should have no parent.
         assertThat(categoryPassedToRepository.getParent())
                 .isNull();
 
+        // isDefault=true represents an app-provided default category
+        // belonging to this specific user.
         assertThat(categoryPassedToRepository.isDefault())
                 .isTrue();
 
+        // Entity construction should generate the ID and timestamps.
         assertThat(categoryPassedToRepository.getId())
                 .isNotNull();
 
@@ -107,6 +120,7 @@ public class CategoryServiceTest {
         CategoryService categoryService =
                 new CategoryService(categoryRepository, userRepository);
 
+        // The child category and its parent must belong to the same user.
         User user = new User(
                 "kartik@example.com",
                 "hashed-password",
@@ -118,6 +132,7 @@ public class CategoryServiceTest {
         when(userRepository.findById(userId))
                 .thenReturn(Optional.of(user));
 
+        // Food is the parent category for the new Restaurants category.
         Category parent = new Category(
                 user,
                 "Food",
@@ -148,11 +163,14 @@ public class CategoryServiceTest {
                 true
         );
 
+        // The service should return the category saved by the repository.
         assertThat(result).isSameAs(savedCategory);
 
         ArgumentCaptor<Category> categoryCaptor =
                 ArgumentCaptor.forClass(Category.class);
 
+        // Verify that the child category is actually saved with the
+        // requested parent relationship.
         verify(categoryRepository).save(categoryCaptor.capture());
 
         Category categoryPassedToRepository =
@@ -164,6 +182,8 @@ public class CategoryServiceTest {
         assertThat(categoryPassedToRepository.getName())
                 .isEqualTo("Restaurants");
 
+        // The new category should reference the existing Food category
+        // as its parent.
         assertThat(categoryPassedToRepository.getParent())
                 .isSameAs(parent);
     }
@@ -181,6 +201,7 @@ public class CategoryServiceTest {
 
         UUID userId = UUID.randomUUID();
 
+        // Category creation must fail if the requested user does not exist.
         when(userRepository.findById(userId))
                 .thenReturn(Optional.empty());
 
@@ -220,6 +241,7 @@ public class CategoryServiceTest {
         when(userRepository.findById(userId))
                 .thenReturn(Optional.of(user));
 
+        // A child category cannot be created using a parent that does not exist.
         when(categoryRepository.findById(parentId))
                 .thenReturn(Optional.empty());
 
@@ -264,6 +286,8 @@ public class CategoryServiceTest {
         when(userRepository.findById(userId))
                 .thenReturn(Optional.of(user));
 
+        // The parent exists, but belongs to a different user.
+        // Categories must never be able to cross user boundaries.
         Category parent = new Category(
                 anotherUser,
                 "Food",
@@ -287,5 +311,4 @@ public class CategoryServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Parent category does not belong to user");
     }
-
 }

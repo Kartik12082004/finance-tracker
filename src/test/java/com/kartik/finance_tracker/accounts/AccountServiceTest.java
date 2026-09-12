@@ -35,6 +35,7 @@ public class AccountServiceTest {
                 userRepository
         );
 
+        // Use one test user for the account creation scenario.
         user = new User(
                 "kartik@example.com",
                 "hashedpassword",
@@ -47,9 +48,11 @@ public class AccountServiceTest {
 
         UUID userId = user.getId();
 
+        // Account creation requires an existing user.
         when(userRepository.findById(userId))
                 .thenReturn(Optional.of(user));
 
+        // Mock the repository response to represent a successfully saved account.
         Account savedAccount = new Account(
                 user,
                 "HDFC Savings",
@@ -67,22 +70,32 @@ public class AccountServiceTest {
                 "INR"
         );
 
+        // The service should return the account produced by the repository.
         assertThat(result).isSameAs(savedAccount);
 
+        // Verify that the service looked up the correct user before creating the account.
         verify(userRepository).findById(userId);
 
         ArgumentCaptor<Account> accountCaptor =
                 ArgumentCaptor.forClass(Account.class);
 
+        // Capture the account passed to the repository so we can verify its contents.
         verify(accountRepository).save(accountCaptor.capture());
 
         Account saved = accountCaptor.getValue();
 
+        // The new account should belong to the requested user.
         assertThat(saved.getUser()).isSameAs(user);
+
+        // Verify that the supplied account details are preserved.
         assertThat(saved.getName()).isEqualTo("HDFC Savings");
         assertThat(saved.getType()).isEqualTo(AccountType.BANK);
         assertThat(saved.getCurrency()).isEqualTo("INR");
+
+        // New accounts start with a zero opening balance.
         assertThat(saved.getOpeningBalance()).isZero();
+
+        // Entity construction should generate the ID and timestamps.
         assertThat(saved.getId()).isNotNull();
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(saved.getUpdatedAt()).isNotNull();
