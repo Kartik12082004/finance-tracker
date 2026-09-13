@@ -24,6 +24,7 @@ import com.kartik.finance_tracker.accounts.Account;
 import com.kartik.finance_tracker.accounts.AccountType;
 import com.kartik.finance_tracker.categories.Category;
 import com.kartik.finance_tracker.categories.CategoryType;
+import com.kartik.finance_tracker.common.exception.GlobalExceptionHandler;
 import com.kartik.finance_tracker.users.User;
 
 public class TransactionControllerTest {
@@ -193,10 +194,16 @@ public class TransactionControllerTest {
     void createTransaction_shouldReturnBadRequestWhenAccountIsMissing() throws Exception {
         TransactionService transactionService = mock(TransactionService.class);
         TransactionController transactionController = new TransactionController(transactionService);
-        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(transactionController).build();
+
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(transactionController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
         UUID userId = UUID.randomUUID();
 
         // Every transaction must have a source account.
+        // Bean Validation rejects the request before the service layer is reached.
         mockMvc.perform(post("/api/transactions")
                 .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
@@ -207,7 +214,9 @@ public class TransactionControllerTest {
                             "occurredAt": "2026-09-13T10:00:00+05:30"
                         }
                         """))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Account is required"));
 
         // Invalid requests must not reach the service layer.
         verifyNoInteractions(transactionService);
@@ -447,5 +456,88 @@ public class TransactionControllerTest {
                 .header("X-User-Id", userId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void createTransaction_shouldReturnBadRequestWhenServiceThrowsIllegalArgumentException()
+            throws Exception {
+        TransactionService transactionService = mock(TransactionService.class);
+
+        TransactionController transactionController =
+                new TransactionController(transactionService);
+
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(transactionController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        UUID userId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+
+        when(transactionService.createTransaction(
+                any(UUID.class),
+                any(UUID.class),
+                any(),
+                any(),
+                any(TransactionType.class),
+                any(BigDecimal.class),
+                any(String.class),
+                any(OffsetDateTime.class)
+        )).thenThrow(new IllegalArgumentException("Insufficient funds"));
+
+        // Business-rule failures should be converted into a standardized 400 response.
+        mockMvc.perform(post("/api/transactions")
+                .header("X-User-Id", userId.toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                            "accountId": "%s",
+                            "categoryId": "%s",
+                            "type": "EXPENSE",
+                            "amount": 850.00,
+                            "description": "Groceries",
+                            "occurredAt": "2026-09-13T10:00:00+05:30"
+                        }
+                        """.formatted(accountId, categoryId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Insufficient funds"));
+    }
+
+    @Test
+    void createTransaction_shouldReturnBadRequestWhenTransactionTypeIsInvalid()
+            throws Exception {
+        TransactionService transactionService = mock(TransactionService.class);
+
+        TransactionController transactionController =
+                new TransactionController(transactionService);
+
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(transactionController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        UUID userId = UUID.randomUUID();
+
+        // Transaction type must be one of the supported enum values:
+        // INCOME, EXPENSE, or TRANSFER.
+        mockMvc.perform(post("/api/transactions")
+                .header("X-User-Id", userId.toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                            "accountId": "%s",
+                            "type": "INVALID_TYPE",
+                            "amount": 850.00,
+                            "occurredAt": "2026-09-13T10:00:00+05:30"
+                        }
+                        """.formatted(UUID.randomUUID())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Invalid request body"));
+
+        // Deserialization failures must not reach the service layer.
+        verifyNoInteractions(transactionService);
     }
 }
