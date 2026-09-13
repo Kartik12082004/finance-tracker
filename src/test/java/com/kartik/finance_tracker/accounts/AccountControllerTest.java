@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -12,9 +13,12 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.kartik.finance_tracker.users.User;
 
 public class AccountControllerTest {
 
@@ -32,7 +36,7 @@ public class AccountControllerTest {
         UUID userId = UUID.randomUUID();
 
         Account account = new Account(
-                new com.kartik.finance_tracker.users.User(
+                new User(
                         "kartik@example.com",
                         "hashed-password",
                         "Kartik"
@@ -214,5 +218,77 @@ public class AccountControllerTest {
 
         // Invalid requests must not reach the service layer.
         verifyNoInteractions(accountService);
+    }
+
+    @Test
+    void getAccounts_shouldReturnUserAccounts() throws Exception {
+        AccountService accountService = mock(AccountService.class);
+
+        AccountController accountController =
+                new AccountController(accountService);
+
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(accountController)
+                .build();
+
+        UUID userId = UUID.randomUUID();
+
+        User user = new User(
+                "kartik@example.com",
+                "hashed-password",
+                "Kartik"
+        );
+
+        Account savingsAccount = new Account(
+                user,
+                "HDFC Savings",
+                AccountType.BANK,
+                "INR"
+        );
+
+        Account cashAccount = new Account(
+                user,
+                "Cash",
+                AccountType.CASH,
+                "INR"
+        );
+
+        when(accountService.getAccounts(userId))
+                .thenReturn(List.of(savingsAccount, cashAccount));
+
+        // The API should return all accounts belonging to the requested user.
+        mockMvc.perform(get("/api/accounts")
+                .header("X-User-Id", userId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].name").value("HDFC Savings"))
+                .andExpect(jsonPath("$[0].type").value("BANK"))
+                .andExpect(jsonPath("$[0].currency").value("INR"))
+                .andExpect(jsonPath("$[1].name").value("Cash"))
+                .andExpect(jsonPath("$[1].type").value("CASH"))
+                .andExpect(jsonPath("$[1].currency").value("INR"));
+    }
+
+    @Test
+    void getAccounts_shouldReturnEmptyListWhenUserHasNoAccounts() throws Exception {
+        AccountService accountService = mock(AccountService.class);
+
+        AccountController accountController =
+                new AccountController(accountService);
+
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(accountController)
+                .build();
+
+        UUID userId = UUID.randomUUID();
+
+        when(accountService.getAccounts(userId))
+                .thenReturn(List.of());
+
+        // A user with no accounts should receive an empty array rather than null.
+        mockMvc.perform(get("/api/accounts")
+                .header("X-User-Id", userId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
     }
 }

@@ -1,5 +1,6 @@
 package com.kartik.finance_tracker.categories;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -67,5 +68,14 @@ public class CategoryService {
         );
 
         return categoryRepository.save(category);
+    }
+
+    public List<Category> getCategories(UUID userId) {
+        // Only return categories owned by the requested user.
+        if (!userRepository.existsById(userId)) {
+            throw new IllegalArgumentException("User not found");
+        }
+
+        return categoryRepository.findAllByUser_Id(userId);
     }
 }

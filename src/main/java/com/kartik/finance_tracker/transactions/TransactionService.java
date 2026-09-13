@@ -2,6 +2,7 @@ package com.kartik.finance_tracker.transactions;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -199,6 +200,15 @@ public class TransactionService {
         );
 
         return transactionRepository.save(transaction);
+    }
+
+    public List<Transaction> getTransactions(UUID userId) {
+        // Only return transactions owned by the requested user.
+        if (!userRepository.existsById(userId)) {
+            throw new IllegalArgumentException("User not found");
+        }
+
+        return transactionRepository.findAllByUser_Id(userId);
     }
 
     private void validateBalance(

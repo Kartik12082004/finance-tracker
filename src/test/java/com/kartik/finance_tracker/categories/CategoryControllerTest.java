@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -200,5 +202,81 @@ public class CategoryControllerTest {
 
         // Invalid requests must not reach the service layer.
         verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void getCategories_shouldReturnUserCategories() throws Exception {
+        CategoryService categoryService = mock(CategoryService.class);
+
+        CategoryController categoryController =
+                new CategoryController(categoryService);
+
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(categoryController)
+                .build();
+
+        UUID userId = UUID.randomUUID();
+
+        User user = new User(
+                "kartik@example.com",
+                "hashed-password",
+                "Kartik"
+        );
+
+        Category foodCategory = new Category(
+                user,
+                "Food",
+                CategoryType.EXPENSE,
+                null,
+                true
+        );
+
+        Category groceriesCategory = new Category(
+                user,
+                "Groceries",
+                CategoryType.EXPENSE,
+                foodCategory,
+                false
+        );
+
+        when(categoryService.getCategories(userId))
+                .thenReturn(List.of(foodCategory, groceriesCategory));
+
+        // The API should return all categories belonging to the requested user.
+        mockMvc.perform(get("/api/categories")
+                .header("X-User-Id", userId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].name").value("Food"))
+                .andExpect(jsonPath("$[0].type").value("EXPENSE"))
+                .andExpect(jsonPath("$[0].parentId").doesNotExist())
+                .andExpect(jsonPath("$[0].isDefault").value(true))
+                .andExpect(jsonPath("$[1].name").value("Groceries"))
+                .andExpect(jsonPath("$[1].type").value("EXPENSE"))
+                .andExpect(jsonPath("$[1].parentId").value(foodCategory.getId().toString()))
+                .andExpect(jsonPath("$[1].isDefault").value(false));
+    }
+
+    @Test
+    void getCategories_shouldReturnEmptyListWhenUserHasNoCategories() throws Exception {
+        CategoryService categoryService = mock(CategoryService.class);
+
+        CategoryController categoryController =
+                new CategoryController(categoryService);
+
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(categoryController)
+                .build();
+
+        UUID userId = UUID.randomUUID();
+
+        when(categoryService.getCategories(userId))
+                .thenReturn(List.of());
+
+        // A user with no categories should receive an empty array rather than null.
+        mockMvc.perform(get("/api/categories")
+                .header("X-User-Id", userId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
     }
 }

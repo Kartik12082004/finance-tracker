@@ -3,6 +3,7 @@ package com.kartik.finance_tracker.accounts;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -40,5 +41,14 @@ public class AccountService {
         );
 
         return accountRepository.save(account);
+    }
+
+    public List<Account> getAccounts(UUID userId) {
+        // Only return accounts owned by the requested user.
+        if (!userRepository.existsById(userId)) {
+            throw new IllegalArgumentException("User not found");
+        }
+
+        return accountRepository.findByUser_Id(userId);
     }
 }
