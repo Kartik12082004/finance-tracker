@@ -7,13 +7,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.kartik.finance_tracker.accounts.dto.AccountResponse;
 import com.kartik.finance_tracker.accounts.dto.CreateAccountRequest;
+import com.kartik.finance_tracker.security.CurrentUserService;
 
 import jakarta.validation.Valid;
 
@@ -22,19 +22,26 @@ import jakarta.validation.Valid;
 public class AccountController {
 
     private final AccountService accountService;
+    private final CurrentUserService currentUserService;
 
-    public AccountController(AccountService accountService) {
+    public AccountController(
+            AccountService accountService,
+            CurrentUserService currentUserService
+    ) {
         this.accountService = accountService;
+        this.currentUserService = currentUserService;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public AccountResponse createAccount(
-            @RequestHeader("X-User-Id") UUID userId,
             @Valid @RequestBody CreateAccountRequest request
     ) {
-        // X-User-Id is temporary as of right now, since we don't have authentication implemented yet.
-        // Once authentication is implemented, the user ID will come from the authenticated JWT.
+
+        // The authenticated user's ID comes from Spring Security,
+        // rather than from a client-supplied header or request body.
+        var userId = currentUserService.getCurrentUserId();
+
         Account account = accountService.createAccount(
                 userId,
                 request.name(),
@@ -42,8 +49,8 @@ public class AccountController {
                 request.currency()
         );
 
-        // The controller converts the domain entity into a response DTO
-        // so internal entity details are not exposed directly through the API.
+        // Convert the domain entity into a response DTO
+        // so internal entity details are not exposed directly.
         return new AccountResponse(
                 account.getId(),
                 account.getName(),
@@ -56,11 +63,11 @@ public class AccountController {
     }
 
     @GetMapping
-    public List<AccountResponse> getAccounts(
-            @RequestHeader("X-User-Id") UUID userId
-    ) {
-        // X-User-Id is temporary as of right now, since we don't have authentication implemented yet.
-        // Once authentication is implemented, the user ID will come from the authenticated JWT.
+    public List<AccountResponse> getAccounts() {
+
+        // The authenticated user's ID comes from Spring Security.
+        UUID userId = currentUserService.getCurrentUserId();
+
         return accountService.getAccounts(userId)
                 .stream()
                 .map(account -> new AccountResponse(

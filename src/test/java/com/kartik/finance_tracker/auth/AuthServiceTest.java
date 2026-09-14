@@ -20,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import com.kartik.finance_tracker.auth.dto.AuthResponse;
 import com.kartik.finance_tracker.auth.dto.LoginRequest;
 import com.kartik.finance_tracker.auth.dto.RegisterRequest;
+import com.kartik.finance_tracker.auth.jwt.JwtService;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
@@ -32,13 +33,17 @@ class AuthServiceTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
+    @Mock
+    private JwtService jwtService;
+
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
         authService = new AuthService(
                 userRepository,
-                passwordEncoder
+                passwordEncoder,
+                jwtService
         );
     }
 
@@ -71,17 +76,28 @@ class AuthServiceTest {
         when(userRepository.save(any(User.class)))
                 .thenReturn(savedUser);
 
+        when(jwtService.generateAccessToken(userId))
+                .thenReturn("test-access-token");
+
+        when(jwtService.getAccessTokenExpiration())
+                .thenReturn(900L);
+
         AuthResponse response = authService.register(request);
 
         assertEquals(userId, response.userId());
         assertEquals("test@example.com", response.email());
         assertEquals("Test User", response.name());
+        assertEquals("test-access-token", response.accessToken());
+        assertEquals(900L, response.expiresIn());
 
         // The raw password must never be passed to the repository.
         verify(passwordEncoder).encode("password123");
 
         // Registration must persist the newly created user.
         verify(userRepository).save(any(User.class));
+
+        // A successful registration should issue an access token.
+        verify(jwtService).generateAccessToken(userId);
     }
 
     @Test
@@ -109,6 +125,7 @@ class AuthServiceTest {
         // No password should be hashed or user persisted when the email already exists.
         verify(passwordEncoder, never()).encode(any());
         verify(userRepository, never()).save(any(User.class));
+        verify(jwtService, never()).generateAccessToken(any());
     }
 
     @Test
@@ -133,16 +150,27 @@ class AuthServiceTest {
                 user.getPasswordHash()
         )).thenReturn(true);
 
+        when(jwtService.generateAccessToken(user.getId()))
+                .thenReturn("test-access-token");
+
+        when(jwtService.getAccessTokenExpiration())
+                .thenReturn(900L);
+
         AuthResponse response = authService.login(request);
 
         assertEquals(user.getId(), response.userId());
         assertEquals("test@example.com", response.email());
         assertEquals("Test User", response.name());
+        assertEquals("test-access-token", response.accessToken());
+        assertEquals(900L, response.expiresIn());
 
         verify(passwordEncoder).matches(
                 "password123",
                 "stored-hash"
         );
+
+        // Successful authentication should issue an access token.
+        verify(jwtService).generateAccessToken(user.getId());
     }
 
     @Test
@@ -167,6 +195,7 @@ class AuthServiceTest {
         );
 
         verify(passwordEncoder, never()).matches(any(), any());
+        verify(jwtService, never()).generateAccessToken(any());
     }
 
     @Test
@@ -200,5 +229,8 @@ class AuthServiceTest {
                 "Invalid email or password",
                 exception.getMessage()
         );
+
+        // A failed password check must never result in an access token.
+        verify(jwtService, never()).generateAccessToken(any());
     }
 }

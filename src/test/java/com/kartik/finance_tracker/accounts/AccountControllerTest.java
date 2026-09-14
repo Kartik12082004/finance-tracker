@@ -2,38 +2,60 @@ package com.kartik.finance_tracker.accounts;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-
-import java.util.List;
-import java.util.UUID;
-
-import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
+import java.util.UUID;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import com.kartik.finance_tracker.security.CurrentUserService;
 import com.kartik.finance_tracker.users.User;
 
-public class AccountControllerTest {
+class AccountControllerTest {
 
-    @Test
-    void createAccount_shouldReturnCreatedAccount() throws Exception {
-        AccountService accountService = mock(AccountService.class);
+    private AccountService accountService;
+    private CurrentUserService currentUserService;
+    private MockMvc mockMvc;
+
+    private UUID userId;
+
+    @BeforeEach
+    void setUp() {
+
+        accountService = mock(AccountService.class);
+        currentUserService = mock(CurrentUserService.class);
 
         AccountController accountController =
-                new AccountController(accountService);
+                new AccountController(
+                        accountService,
+                        currentUserService
+                );
 
-        MockMvc mockMvc = MockMvcBuilders
+        mockMvc = MockMvcBuilders
                 .standaloneSetup(accountController)
                 .build();
 
-        UUID userId = UUID.randomUUID();
+        userId = UUID.randomUUID();
+
+        // The controller gets the authenticated user from CurrentUserService.
+        // Tests therefore do not need to construct or inject JWTs themselves.
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
+    }
+
+    @Test
+    void createAccount_shouldReturnCreatedAccount() throws Exception {
 
         Account account = new Account(
                 new User(
@@ -55,7 +77,6 @@ public class AccountControllerTest {
 
         // The API should return 201 when an account is successfully created.
         mockMvc.perform(post("/api/accounts")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -69,24 +90,21 @@ public class AccountControllerTest {
                 .andExpect(jsonPath("$.type").value("BANK"))
                 .andExpect(jsonPath("$.currency").value("INR"))
                 .andExpect(jsonPath("$.openingBalance").value(0));
+
+        // The controller must pass the authenticated user's ID to the service.
+        verify(accountService).createAccount(
+                userId,
+                "HDFC Savings",
+                AccountType.BANK,
+                "INR"
+        );
     }
 
     @Test
     void createAccount_shouldReturnBadRequestWhenNameIsMissing() throws Exception {
-        AccountService accountService = mock(AccountService.class);
-
-        AccountController accountController =
-                new AccountController(accountService);
-
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(accountController)
-                .build();
-
-        UUID userId = UUID.randomUUID();
 
         // The API must reject a request without an account name.
         mockMvc.perform(post("/api/accounts")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -102,20 +120,9 @@ public class AccountControllerTest {
 
     @Test
     void createAccount_shouldReturnBadRequestWhenTypeIsMissing() throws Exception {
-        AccountService accountService = mock(AccountService.class);
-
-        AccountController accountController =
-                new AccountController(accountService);
-
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(accountController)
-                .build();
-
-        UUID userId = UUID.randomUUID();
 
         // The API must reject a request without an account type.
         mockMvc.perform(post("/api/accounts")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -131,20 +138,9 @@ public class AccountControllerTest {
 
     @Test
     void createAccount_shouldReturnBadRequestWhenCurrencyIsMissing() throws Exception {
-        AccountService accountService = mock(AccountService.class);
-
-        AccountController accountController =
-                new AccountController(accountService);
-
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(accountController)
-                .build();
-
-        UUID userId = UUID.randomUUID();
 
         // The API must reject a request without a currency.
         mockMvc.perform(post("/api/accounts")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -160,20 +156,9 @@ public class AccountControllerTest {
 
     @Test
     void createAccount_shouldReturnBadRequestWhenCurrencyLengthIsInvalid() throws Exception {
-        AccountService accountService = mock(AccountService.class);
-
-        AccountController accountController =
-                new AccountController(accountService);
-
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(accountController)
-                .build();
-
-        UUID userId = UUID.randomUUID();
 
         // Currency must be exactly three characters, such as INR.
         mockMvc.perform(post("/api/accounts")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -190,22 +175,11 @@ public class AccountControllerTest {
 
     @Test
     void createAccount_shouldReturnBadRequestWhenNameIsTooLong() throws Exception {
-        AccountService accountService = mock(AccountService.class);
-
-        AccountController accountController =
-                new AccountController(accountService);
-
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(accountController)
-                .build();
-
-        UUID userId = UUID.randomUUID();
 
         String longName = "a".repeat(101);
 
         // Account names are limited to 100 characters.
         mockMvc.perform(post("/api/accounts")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -222,16 +196,6 @@ public class AccountControllerTest {
 
     @Test
     void getAccounts_shouldReturnUserAccounts() throws Exception {
-        AccountService accountService = mock(AccountService.class);
-
-        AccountController accountController =
-                new AccountController(accountService);
-
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(accountController)
-                .build();
-
-        UUID userId = UUID.randomUUID();
 
         User user = new User(
                 "kartik@example.com",
@@ -256,9 +220,8 @@ public class AccountControllerTest {
         when(accountService.getAccounts(userId))
                 .thenReturn(List.of(savingsAccount, cashAccount));
 
-        // The API should return all accounts belonging to the requested user.
-        mockMvc.perform(get("/api/accounts")
-                .header("X-User-Id", userId.toString()))
+        // The API should return all accounts belonging to the authenticated user.
+        mockMvc.perform(get("/api/accounts"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].name").value("HDFC Savings"))
@@ -267,28 +230,23 @@ public class AccountControllerTest {
                 .andExpect(jsonPath("$[1].name").value("Cash"))
                 .andExpect(jsonPath("$[1].type").value("CASH"))
                 .andExpect(jsonPath("$[1].currency").value("INR"));
+
+        // The service must receive the authenticated user's ID.
+        verify(accountService).getAccounts(userId);
     }
 
     @Test
     void getAccounts_shouldReturnEmptyListWhenUserHasNoAccounts() throws Exception {
-        AccountService accountService = mock(AccountService.class);
-
-        AccountController accountController =
-                new AccountController(accountService);
-
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(accountController)
-                .build();
-
-        UUID userId = UUID.randomUUID();
 
         when(accountService.getAccounts(userId))
                 .thenReturn(List.of());
 
         // A user with no accounts should receive an empty array rather than null.
-        mockMvc.perform(get("/api/accounts")
-                .header("X-User-Id", userId.toString()))
+        mockMvc.perform(get("/api/accounts"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
+
+        // The authenticated user's ID must be used when querying accounts.
+        verify(accountService).getAccounts(userId);
     }
 }

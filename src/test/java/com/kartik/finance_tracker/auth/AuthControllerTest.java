@@ -50,7 +50,9 @@ class AuthControllerTest {
                 .thenReturn(new AuthResponse(
                         userId,
                         "test@example.com",
-                        "Test User"
+                        "Test User",
+                        "test-access-token",
+                        900L
                 ));
 
         mockMvc.perform(post("/api/auth/register")
@@ -65,7 +67,9 @@ class AuthControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.userId").value(userId.toString()))
                 .andExpect(jsonPath("$.email").value("test@example.com"))
-                .andExpect(jsonPath("$.name").value("Test User"));
+                .andExpect(jsonPath("$.name").value("Test User"))
+                .andExpect(jsonPath("$.accessToken").value("test-access-token"))
+                .andExpect(jsonPath("$.expiresIn").value(900));
 
         verify(authService).register(any(RegisterRequest.class));
     }
@@ -79,7 +83,9 @@ class AuthControllerTest {
                 .thenReturn(new AuthResponse(
                         userId,
                         "test@example.com",
-                        "Test User"
+                        "Test User",
+                        "test-access-token",
+                        900L
                 ));
 
         mockMvc.perform(post("/api/auth/login")
@@ -93,7 +99,9 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value(userId.toString()))
                 .andExpect(jsonPath("$.email").value("test@example.com"))
-                .andExpect(jsonPath("$.name").value("Test User"));
+                .andExpect(jsonPath("$.name").value("Test User"))
+                .andExpect(jsonPath("$.accessToken").value("test-access-token"))
+                .andExpect(jsonPath("$.expiresIn").value(900));
 
         verify(authService).login(any(LoginRequest.class));
     }

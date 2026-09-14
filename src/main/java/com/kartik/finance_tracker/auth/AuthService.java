@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import com.kartik.finance_tracker.auth.dto.AuthResponse;
 import com.kartik.finance_tracker.auth.dto.LoginRequest;
 import com.kartik.finance_tracker.auth.dto.RegisterRequest;
+import com.kartik.finance_tracker.auth.jwt.JwtService;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
@@ -14,13 +15,16 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
 
     public AuthService(
             UserRepository userRepository,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            JwtService jwtService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
     }
 
     public AuthResponse register(RegisterRequest request) {
@@ -41,10 +45,15 @@ public class AuthService {
 
         User savedUser = userRepository.save(user);
 
+        // Issue an access token immediately after successful registration.
+        String accessToken = jwtService.generateAccessToken(savedUser.getId());
+
         return new AuthResponse(
                 savedUser.getId(),
                 savedUser.getEmail(),
-                savedUser.getName()
+                savedUser.getName(),
+                accessToken,
+                jwtService.getAccessTokenExpiration()
         );
     }
 
@@ -63,10 +72,15 @@ public class AuthService {
             throw new IllegalArgumentException("Invalid email or password");
         }
 
+        // Issue an access token after successful authentication.
+        String accessToken = jwtService.generateAccessToken(user.getId());
+
         return new AuthResponse(
                 user.getId(),
                 user.getEmail(),
-                user.getName()
+                user.getName(),
+                accessToken,
+                jwtService.getAccessTokenExpiration()
         );
     }
 }

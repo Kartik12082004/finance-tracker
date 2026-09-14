@@ -23,6 +23,10 @@ public class SecurityConfig {
     ) throws Exception {
 
         http
+                // This API uses JWT bearer tokens rather than browser sessions.
+                // CSRF protection is therefore not needed for our REST API.
+                .csrf(csrf -> csrf.disable())
+                
                 // Authentication/authorization rules will be tightened up later on.
                 // For now, allow the native auth endpoints and OAuth2 login flow.
                 .authorizeHttpRequests(authorize -> authorize
@@ -31,13 +35,18 @@ public class SecurityConfig {
                                 "/oauth2/**",
                                 "/login/**"
                         ).permitAll()
-                        .anyRequest().permitAll()
+                        .anyRequest().authenticated()
                 )
 
                 // Enable OAuth2 Login and send successful logins through
                 // our own user-mapping handler.
                 .oauth2Login(oauth2 -> oauth2
                         .successHandler(oauth2LoginSuccessHandler)
+                )
+
+                // Enable JWT bearer-token authentication for REST requests.
+                .oauth2ResourceServer(resourceServer -> resourceServer
+                        .jwt(jwt -> {})
                 );
 
         return http.build();
