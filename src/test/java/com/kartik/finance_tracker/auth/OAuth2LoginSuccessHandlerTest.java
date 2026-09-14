@@ -207,4 +207,43 @@ class OAuth2LoginSuccessHandlerTest {
         // Root is only a temporary destination until the React frontend exists.
         verify(response).sendRedirect("/");
     }
+
+    @Test
+    void onAuthenticationSuccess_shouldUseGitHubLoginWhenProfileNameMissing()
+            throws Exception {
+
+        when(authentication.getAuthorizedClientRegistrationId())
+                .thenReturn("github");
+
+        when(authentication.getPrincipal())
+                .thenReturn(oauthUser);
+
+        when(oauthUser.getAttribute("id"))
+                .thenReturn(123456);
+
+        when(oauthUser.getAttribute("email"))
+                .thenReturn("github@example.com");
+
+        // GitHub profile has no display name.
+        when(oauthUser.getAttribute("name"))
+                .thenReturn(null);
+
+        // The GitHub username is used as the fallback name.
+        when(oauthUser.getAttribute("login"))
+                .thenReturn("github-user");
+
+        successHandler.onAuthenticationSuccess(
+                request,
+                response,
+                authentication
+        );
+
+        verify(oauthAccountService).findOrCreateUser(
+                OAuthProvider.GITHUB,
+                "123456",
+                "github@example.com",
+                "github-user"
+        );
+    }
+
 }

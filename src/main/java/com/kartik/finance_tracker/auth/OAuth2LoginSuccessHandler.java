@@ -73,6 +73,12 @@ public class OAuth2LoginSuccessHandler
             email = oauthUser.getAttribute("email");
             name = oauthUser.getAttribute("name");
 
+            // GitHub users are allowed to leave their profile name empty.
+            // Fall back to the GitHub username so our User.name remains non-null.
+            if (name == null || name.isBlank()) {
+                name = oauthUser.getAttribute("login");
+            }
+
             // GitHub may hide the email from the normal profile response.
             if (email == null || email.isBlank()) {
 
