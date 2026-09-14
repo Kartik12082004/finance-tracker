@@ -44,8 +44,8 @@ public class User {
     @Column(nullable = false, unique = true, length = 255)
     private String email;
 
-    // Store the hashed password rather than the user's plain-text password.
-    @Column(name = "password_hash", nullable = false, length = 255)
+    // Native users store a hashed password; OAuth-only users can leave this null.
+    @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
     @Column(nullable = false, length = 100)
