@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.kartik.finance_tracker.auth.dto.AuthResponse;
 import com.kartik.finance_tracker.auth.dto.LoginRequest;
+import com.kartik.finance_tracker.auth.dto.RefreshTokenRequest;
 import com.kartik.finance_tracker.auth.dto.RegisterRequest;
 
 import jakarta.validation.Valid;
@@ -36,5 +37,12 @@ public class AuthController {
             @Valid @RequestBody LoginRequest request
     ) {
         return authService.login(request);
+    }
+
+    @PostMapping("/refresh")
+    public AuthResponse refresh(
+            @Valid @RequestBody RefreshTokenRequest request
+    ) {
+        return authService.refresh(request.refreshToken());
     }
 }

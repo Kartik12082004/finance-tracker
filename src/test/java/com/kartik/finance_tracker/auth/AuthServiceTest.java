@@ -11,16 +11,18 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.kartik.finance_tracker.auth.dto.AuthResponse;
 import com.kartik.finance_tracker.auth.dto.LoginRequest;
 import com.kartik.finance_tracker.auth.dto.RegisterRequest;
 import com.kartik.finance_tracker.auth.jwt.JwtService;
+import com.kartik.finance_tracker.auth.refresh.RefreshTokenRotation;
+import com.kartik.finance_tracker.auth.refresh.RefreshTokenService;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
@@ -36,6 +38,9 @@ class AuthServiceTest {
     @Mock
     private JwtService jwtService;
 
+    @Mock
+    private RefreshTokenService refreshTokenService;
+
     private AuthService authService;
 
     @BeforeEach
@@ -43,12 +48,13 @@ class AuthServiceTest {
         authService = new AuthService(
                 userRepository,
                 passwordEncoder,
-                jwtService
+                jwtService,
+                refreshTokenService
         );
     }
 
     @Test
-    void register_shouldCreateUserWithHashedPassword() {
+    void register_shouldCreateUserWithHashedPasswordAndTokens() {
 
         RegisterRequest request = new RegisterRequest(
                 "test@example.com",
@@ -82,6 +88,9 @@ class AuthServiceTest {
         when(jwtService.getAccessTokenExpiration())
                 .thenReturn(900L);
 
+        when(refreshTokenService.createRefreshToken(savedUser))
+                .thenReturn("test-refresh-token");
+
         AuthResponse response = authService.register(request);
 
         assertEquals(userId, response.userId());
@@ -89,6 +98,7 @@ class AuthServiceTest {
         assertEquals("Test User", response.name());
         assertEquals("test-access-token", response.accessToken());
         assertEquals(900L, response.expiresIn());
+        assertEquals("test-refresh-token", response.refreshToken());
 
         // The raw password must never be passed to the repository.
         verify(passwordEncoder).encode("password123");
@@ -98,6 +108,9 @@ class AuthServiceTest {
 
         // A successful registration should issue an access token.
         verify(jwtService).generateAccessToken(userId);
+
+        // A successful registration should also issue a refresh token.
+        verify(refreshTokenService).createRefreshToken(savedUser);
     }
 
     @Test
@@ -125,11 +138,14 @@ class AuthServiceTest {
         // No password should be hashed or user persisted when the email already exists.
         verify(passwordEncoder, never()).encode(any());
         verify(userRepository, never()).save(any(User.class));
+
+        // Failed registration must not issue either type of token.
         verify(jwtService, never()).generateAccessToken(any());
+        verify(refreshTokenService, never()).createRefreshToken(any());
     }
 
     @Test
-    void login_shouldAuthenticateValidCredentials() {
+    void login_shouldAuthenticateValidCredentialsAndIssueTokens() {
 
         LoginRequest request = new LoginRequest(
                 "test@example.com",
@@ -156,6 +172,9 @@ class AuthServiceTest {
         when(jwtService.getAccessTokenExpiration())
                 .thenReturn(900L);
 
+        when(refreshTokenService.createRefreshToken(user))
+                .thenReturn("test-refresh-token");
+
         AuthResponse response = authService.login(request);
 
         assertEquals(user.getId(), response.userId());
@@ -163,6 +182,7 @@ class AuthServiceTest {
         assertEquals("Test User", response.name());
         assertEquals("test-access-token", response.accessToken());
         assertEquals(900L, response.expiresIn());
+        assertEquals("test-refresh-token", response.refreshToken());
 
         verify(passwordEncoder).matches(
                 "password123",
@@ -171,6 +191,9 @@ class AuthServiceTest {
 
         // Successful authentication should issue an access token.
         verify(jwtService).generateAccessToken(user.getId());
+
+        // Successful authentication should also issue a refresh token.
+        verify(refreshTokenService).createRefreshToken(user);
     }
 
     @Test
@@ -196,6 +219,7 @@ class AuthServiceTest {
 
         verify(passwordEncoder, never()).matches(any(), any());
         verify(jwtService, never()).generateAccessToken(any());
+        verify(refreshTokenService, never()).createRefreshToken(any());
     }
 
     @Test
@@ -230,7 +254,77 @@ class AuthServiceTest {
                 exception.getMessage()
         );
 
-        // A failed password check must never result in an access token.
+        // A failed password check must never result in either token.
         verify(jwtService, never()).generateAccessToken(any());
+        verify(refreshTokenService, never()).createRefreshToken(any());
+    }
+
+    @Test
+    void refresh_shouldRotateRefreshTokenAndIssueNewAccessToken() {
+
+        User user = new User(
+                "test@example.com",
+                "stored-hash",
+                "Test User"
+        );
+
+        RefreshTokenRotation rotation = new RefreshTokenRotation(
+                user,
+                "new-refresh-token"
+        );
+
+        when(refreshTokenService.rotateRefreshToken("old-refresh-token"))
+                .thenReturn(rotation);
+
+        when(jwtService.generateAccessToken(user.getId()))
+                .thenReturn("new-access-token");
+
+        when(jwtService.getAccessTokenExpiration())
+                .thenReturn(900L);
+
+        AuthResponse response =
+                authService.refresh("old-refresh-token");
+
+        assertEquals(user.getId(), response.userId());
+        assertEquals("test@example.com", response.email());
+        assertEquals("Test User", response.name());
+        assertEquals("new-access-token", response.accessToken());
+        assertEquals(900L, response.expiresIn());
+        assertEquals("new-refresh-token", response.refreshToken());
+
+        // The supplied refresh token must be validated and rotated.
+        verify(refreshTokenService)
+                .rotateRefreshToken("old-refresh-token");
+
+        // A successful refresh must issue a new access token.
+        verify(jwtService)
+                .generateAccessToken(user.getId());
+
+        verify(jwtService)
+                .getAccessTokenExpiration();
+    }
+
+    @Test
+    void refresh_shouldRejectInvalidRefreshToken() {
+
+        when(refreshTokenService.rotateRefreshToken("invalid-refresh-token"))
+                .thenThrow(new IllegalArgumentException("Invalid refresh token"));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> authService.refresh("invalid-refresh-token")
+        );
+
+        assertEquals(
+                "Invalid refresh token",
+                exception.getMessage()
+        );
+
+        // An invalid refresh token must never result in a new access token.
+        verify(jwtService, never()).generateAccessToken(any());
+
+        // The service should not attempt to retrieve token expiration
+        // when refresh-token validation fails.
+        verify(jwtService, never()).getAccessTokenExpiration();
     }
 }
