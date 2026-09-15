@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,10 +38,9 @@ public class AccountController {
     public AccountResponse createAccount(
             @Valid @RequestBody CreateAccountRequest request
     ) {
-
         // The authenticated user's ID comes from Spring Security,
         // rather than from a client-supplied header or request body.
-        var userId = currentUserService.getCurrentUserId();
+        UUID userId = currentUserService.getCurrentUserId();
 
         Account account = accountService.createAccount(
                 userId,
@@ -49,17 +49,9 @@ public class AccountController {
                 request.currency()
         );
 
-        // Convert the domain entity into a response DTO
-        // so internal entity details are not exposed directly.
-        return new AccountResponse(
-                account.getId(),
-                account.getName(),
-                account.getType(),
-                account.getCurrency(),
-                account.getOpeningBalance(),
-                account.getCreatedAt(),
-                account.getUpdatedAt()
-        );
+        // The controller converts the domain entity into a response DTO
+        // so internal entity details are not exposed directly through the API.
+        return toResponse(account);
     }
 
     @GetMapping
@@ -70,15 +62,35 @@ public class AccountController {
 
         return accountService.getAccounts(userId)
                 .stream()
-                .map(account -> new AccountResponse(
-                        account.getId(),
-                        account.getName(),
-                        account.getType(),
-                        account.getCurrency(),
-                        account.getOpeningBalance(),
-                        account.getCreatedAt(),
-                        account.getUpdatedAt()
-                ))
+                .map(this::toResponse)
                 .toList();
+    }
+
+    @GetMapping("/{accountId}")
+    public AccountResponse getAccount(
+            @PathVariable UUID accountId
+    ) {
+        // Never trust the client to tell us which user owns the account.
+        // The authenticated user's ID comes from the JWT.
+        UUID userId = currentUserService.getCurrentUserId();
+
+        Account account = accountService.getAccount(
+                userId,
+                accountId
+        );
+
+        return toResponse(account);
+    }
+
+    private AccountResponse toResponse(Account account) {
+        return new AccountResponse(
+                account.getId(),
+                account.getName(),
+                account.getType(),
+                account.getCurrency(),
+                account.getOpeningBalance(),
+                account.getCreatedAt(),
+                account.getUpdatedAt()
+        );
     }
 }

@@ -20,7 +20,6 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import com.kartik.finance_tracker.auth.dto.AuthResponse;
 import com.kartik.finance_tracker.auth.dto.LoginRequest;
-import com.kartik.finance_tracker.auth.dto.RefreshTokenRequest;
 import com.kartik.finance_tracker.auth.dto.RegisterRequest;
 import com.kartik.finance_tracker.common.exception.GlobalExceptionHandler;
 

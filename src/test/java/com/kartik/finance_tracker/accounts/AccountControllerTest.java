@@ -249,4 +249,42 @@ class AccountControllerTest {
         // The authenticated user's ID must be used when querying accounts.
         verify(accountService).getAccounts(userId);
     }
+
+    @Test
+    void getAccount_shouldReturnAccountWhenItBelongsToUser() throws Exception {
+
+        UUID accountId = UUID.randomUUID();
+
+        User user = new User(
+                "kartik@example.com",
+                "hashed-password",
+                "Kartik"
+        );
+
+        Account account = new Account(
+                user,
+                "HDFC Savings",
+                AccountType.BANK,
+                "INR"
+        );
+
+        when(accountService.getAccount(userId, accountId))
+                .thenReturn(account);
+
+        // The API should return the requested account when it belongs
+        // to the authenticated user.
+        mockMvc.perform(get("/api/accounts/{accountId}", accountId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("HDFC Savings"))
+                .andExpect(jsonPath("$.type").value("BANK"))
+                .andExpect(jsonPath("$.currency").value("INR"))
+                .andExpect(jsonPath("$.openingBalance").value(0));
+
+        // The controller must pass both the authenticated user ID
+        // and requested account ID to the service.
+        verify(accountService).getAccount(
+                userId,
+                accountId
+        );
+    }
 }

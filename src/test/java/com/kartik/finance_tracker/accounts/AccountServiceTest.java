@@ -1,6 +1,7 @@
 package com.kartik.finance_tracker.accounts;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -16,7 +17,7 @@ import org.mockito.ArgumentCaptor;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
-public class AccountServiceTest {
+class AccountServiceTest {
 
     private AccountRepository accountRepository;
     private UserRepository userRepository;
@@ -35,7 +36,7 @@ public class AccountServiceTest {
                 userRepository
         );
 
-        // Use one test user for the account creation scenario.
+        // Use one test user for the account creation and ownership scenarios.
         user = new User(
                 "kartik@example.com",
                 "hashedpassword",
@@ -99,5 +100,66 @@ public class AccountServiceTest {
         assertThat(saved.getId()).isNotNull();
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(saved.getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    void getAccount_shouldReturnAccountWhenItBelongsToUser() {
+
+        UUID userId = user.getId();
+        UUID accountId = UUID.randomUUID();
+
+        Account account = new Account(
+                user,
+                "HDFC Savings",
+                AccountType.BANK,
+                "INR"
+        );
+
+        when(accountRepository.findByIdAndUser_Id(accountId, userId))
+                .thenReturn(Optional.of(account));
+
+        Account result = accountService.getAccount(
+                userId,
+                accountId
+        );
+
+        // The service should return the account when the account
+        // belongs to the authenticated user.
+        assertThat(result).isSameAs(account);
+
+        // The repository lookup must be scoped by both IDs.
+        verify(accountRepository)
+                .findByIdAndUser_Id(accountId, userId);
+    }
+
+    @Test
+    void getAccount_shouldRejectAccountOwnedByAnotherUser() {
+
+        UUID userId = user.getId();
+        UUID anotherUsersAccountId = UUID.randomUUID();
+
+        // Returning an empty result represents an account that either
+        // does not exist or does not belong to the authenticated user.
+        when(accountRepository.findByIdAndUser_Id(
+                anotherUsersAccountId,
+                userId
+        )).thenReturn(Optional.empty());
+
+        // A user must not be able to access another user's account
+        // by supplying that account's ID.
+        assertThatThrownBy(() ->
+                accountService.getAccount(
+                        userId,
+                        anotherUsersAccountId
+                ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account not found");
+
+        // Verify that the ownership-scoped query was actually used.
+        verify(accountRepository)
+                .findByIdAndUser_Id(
+                        anotherUsersAccountId,
+                        userId
+                );
     }
 }

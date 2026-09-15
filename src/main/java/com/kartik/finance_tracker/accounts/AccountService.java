@@ -44,11 +44,22 @@ public class AccountService {
     }
 
     public List<Account> getAccounts(UUID userId) {
-        // Only return accounts owned by the requested user.
+
+        // The authenticated user should exist in the database.
         if (!userRepository.existsById(userId)) {
             throw new IllegalArgumentException("User not found");
         }
 
+        // Only return accounts owned by the authenticated user.
         return accountRepository.findByUser_Id(userId);
+    }
+
+    public Account getAccount(UUID userId, UUID accountId) {
+
+        // Scope the lookup by both account ID and authenticated user ID.
+        // This prevents one user from accessing another user's account
+        // simply by changing the account ID in the URL.
+        return accountRepository.findByIdAndUser_Id(accountId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Account not found"));
     }
 }
