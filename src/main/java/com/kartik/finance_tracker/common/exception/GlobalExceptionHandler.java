@@ -64,5 +64,15 @@ public class GlobalExceptionHandler {
                 "Invalid request body"
         );
     }
+
+    @ExceptionHandler(Exception.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public ApiErrorResponse handleUnexpectedException(Exception exception) {
+        // Keep unexpected internal failures hidden from API clients.
+        return new ApiErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                "An unexpected error occurred"
+        );
+    }
     
 }
