@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -18,22 +19,34 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.kartik.finance_tracker.security.CurrentUserService;
 import com.kartik.finance_tracker.users.User;
 
 public class CategoryControllerTest {
 
-    @Test
-    void createCategory_shouldReturnCreatedCategory() throws Exception {
-        CategoryService categoryService = mock(CategoryService.class);
+    private CategoryService categoryService;
+    private CurrentUserService currentUserService;
+    private MockMvc mockMvc;
+
+    @BeforeEach
+    void setUp() {
+        categoryService = mock(CategoryService.class);
+        currentUserService = mock(CurrentUserService.class);
 
         CategoryController categoryController =
-                new CategoryController(categoryService);
+                new CategoryController(categoryService, currentUserService);
 
-        MockMvc mockMvc = MockMvcBuilders
+        mockMvc = MockMvcBuilders
                 .standaloneSetup(categoryController)
                 .build();
+    }
 
+    @Test
+    void createCategory_shouldReturnCreatedCategory() throws Exception {
         UUID userId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
 
         Category category = new Category(
                 new User(
@@ -57,7 +70,6 @@ public class CategoryControllerTest {
 
         // The API should return 201 when a category is successfully created.
         mockMvc.perform(post("/api/categories")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -75,16 +87,10 @@ public class CategoryControllerTest {
 
     @Test
     void createCategory_shouldReturnCreatedChildCategory() throws Exception {
-        CategoryService categoryService = mock(CategoryService.class);
-
-        CategoryController categoryController =
-                new CategoryController(categoryService);
-
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(categoryController)
-                .build();
-
         UUID userId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
 
         User user = new User(
                 "kartik@example.com",
@@ -118,7 +124,6 @@ public class CategoryControllerTest {
         )).thenReturn(child);
 
         mockMvc.perform(post("/api/categories")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -137,14 +142,13 @@ public class CategoryControllerTest {
 
     @Test
     void createCategory_shouldReturnBadRequestWhenNameIsMissing() throws Exception {
-        CategoryService categoryService = mock(CategoryService.class);
-        CategoryController categoryController = new CategoryController(categoryService);
-        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(categoryController).build();
         UUID userId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
 
         // The API must reject a request without a category name.
         mockMvc.perform(post("/api/categories")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -159,14 +163,13 @@ public class CategoryControllerTest {
 
     @Test
     void createCategory_shouldReturnBadRequestWhenTypeIsMissing() throws Exception {
-        CategoryService categoryService = mock(CategoryService.class);
-        CategoryController categoryController = new CategoryController(categoryService);
-        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(categoryController).build();
         UUID userId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
 
         // The API must reject a request without a category type.
         mockMvc.perform(post("/api/categories")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -181,16 +184,15 @@ public class CategoryControllerTest {
 
     @Test
     void createCategory_shouldReturnBadRequestWhenNameIsTooLong() throws Exception {
-        CategoryService categoryService = mock(CategoryService.class);
-        CategoryController categoryController = new CategoryController(categoryService);
-        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(categoryController).build();
         UUID userId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
 
         String longName = "a".repeat(101);
 
         // Category names are limited to 100 characters.
         mockMvc.perform(post("/api/categories")
-                .header("X-User-Id", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -206,16 +208,10 @@ public class CategoryControllerTest {
 
     @Test
     void getCategories_shouldReturnUserCategories() throws Exception {
-        CategoryService categoryService = mock(CategoryService.class);
-
-        CategoryController categoryController =
-                new CategoryController(categoryService);
-
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(categoryController)
-                .build();
-
         UUID userId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
 
         User user = new User(
                 "kartik@example.com",
@@ -242,9 +238,8 @@ public class CategoryControllerTest {
         when(categoryService.getCategories(userId))
                 .thenReturn(List.of(foodCategory, groceriesCategory));
 
-        // The API should return all categories belonging to the requested user.
-        mockMvc.perform(get("/api/categories")
-                .header("X-User-Id", userId.toString()))
+        // The API should return all categories belonging to the authenticated user.
+        mockMvc.perform(get("/api/categories"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].name").value("Food"))
@@ -253,29 +248,24 @@ public class CategoryControllerTest {
                 .andExpect(jsonPath("$[0].isDefault").value(true))
                 .andExpect(jsonPath("$[1].name").value("Groceries"))
                 .andExpect(jsonPath("$[1].type").value("EXPENSE"))
-                .andExpect(jsonPath("$[1].parentId").value(foodCategory.getId().toString()))
+                .andExpect(jsonPath("$[1].parentId")
+                        .value(foodCategory.getId().toString()))
                 .andExpect(jsonPath("$[1].isDefault").value(false));
     }
 
     @Test
-    void getCategories_shouldReturnEmptyListWhenUserHasNoCategories() throws Exception {
-        CategoryService categoryService = mock(CategoryService.class);
-
-        CategoryController categoryController =
-                new CategoryController(categoryService);
-
-        MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(categoryController)
-                .build();
-
+    void getCategories_shouldReturnEmptyListWhenUserHasNoCategories()
+            throws Exception {
         UUID userId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
 
         when(categoryService.getCategories(userId))
                 .thenReturn(List.of());
 
         // A user with no categories should receive an empty array rather than null.
-        mockMvc.perform(get("/api/categories")
-                .header("X-User-Id", userId.toString()))
+        mockMvc.perform(get("/api/categories"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }

@@ -7,13 +7,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.kartik.finance_tracker.categories.dto.CategoryResponse;
 import com.kartik.finance_tracker.categories.dto.CreateCategoryRequest;
+import com.kartik.finance_tracker.security.CurrentUserService;
 
 import jakarta.validation.Valid;
 
@@ -22,19 +22,23 @@ import jakarta.validation.Valid;
 public class CategoryController {
 
     private final CategoryService categoryService;
+    private final CurrentUserService currentUserService;
 
-    public CategoryController(CategoryService categoryService) {
+    public CategoryController(
+            CategoryService categoryService,
+            CurrentUserService currentUserService
+    ) {
         this.categoryService = categoryService;
+        this.currentUserService = currentUserService;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public CategoryResponse createCategory(
-            @RequestHeader("X-User-Id") UUID userId,
             @Valid @RequestBody CreateCategoryRequest request
     ) {
-        // X-User-Id is temporary as of right now, since we don't have authentication implemented yet.
-        // Authentication will provide the user identity once security is implemented.
+        UUID userId = currentUserService.getCurrentUserId();
+
         Category category = categoryService.createCategory(
                 userId,
                 request.name(),
@@ -57,11 +61,9 @@ public class CategoryController {
     }
 
     @GetMapping
-    public List<CategoryResponse> getCategories(
-            @RequestHeader("X-User-Id") UUID userId
-    ) {
-        // X-User-Id is temporary as of right now, since we don't have authentication implemented yet.
-        // Authentication will provide the user identity once security is implemented.
+    public List<CategoryResponse> getCategories() {
+        UUID userId = currentUserService.getCurrentUserId();
+
         return categoryService.getCategories(userId)
                 .stream()
                 .map(category -> new CategoryResponse(

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.kartik.finance_tracker.transactions.Transaction;
 import com.kartik.finance_tracker.transactions.TransactionRepository;
@@ -24,6 +25,7 @@ public class AccountBalanceService {
         this.transactionRepository = transactionRepository;
     }
 
+    @Transactional(readOnly = true)
     public BigDecimal calculateBalance(UUID accountId) {
 
         Account account = accountRepository.findById(accountId)

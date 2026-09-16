@@ -13,6 +13,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import com.kartik.finance_tracker.common.exception.ResourceNotFoundException;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
@@ -261,7 +262,7 @@ public class CategoryServiceTest {
                         true
                 )
         )
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("User not found");
     }
 
@@ -301,7 +302,7 @@ public class CategoryServiceTest {
                         true
                 )
         )
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Parent category not found");
     }
 
@@ -334,7 +335,8 @@ public class CategoryServiceTest {
                 .thenReturn(Optional.of(user));
 
         // The parent exists, but belongs to a different user.
-        // Categories must never be able to cross user boundaries.
+        // Resources outside the user's scope are treated as not found
+        // rather than revealing that another user's category exists.
         Category parent = new Category(
                 anotherUser,
                 "Food",
@@ -355,7 +357,7 @@ public class CategoryServiceTest {
                         false
                 )
         )
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Parent category does not belong to user");
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Parent category not found");
     }
 }

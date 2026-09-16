@@ -2,7 +2,9 @@ package com.kartik.finance_tracker.auth;
 
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
+
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class OAuthAccountService {
@@ -18,6 +20,7 @@ public class OAuthAccountService {
         this.userRepository = userRepository;
     }
 
+    @Transactional
     public User findOrCreateUser(
             OAuthProvider provider,
             String providerUserId,

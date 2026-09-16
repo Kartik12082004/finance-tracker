@@ -16,6 +16,7 @@ import org.mockito.ArgumentCaptor;
 
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
+import com.kartik.finance_tracker.common.exception.ResourceNotFoundException;
 
 class AccountServiceTest {
 
@@ -152,7 +153,7 @@ class AccountServiceTest {
                         userId,
                         anotherUsersAccountId
                 ))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Account not found");
 
         // Verify that the ownership-scoped query was actually used.

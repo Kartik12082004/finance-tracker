@@ -8,6 +8,7 @@ import java.util.Base64;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.kartik.finance_tracker.users.User;
 
@@ -29,6 +30,7 @@ public class RefreshTokenService {
         this.refreshTokenExpirationDays = refreshTokenExpirationDays;
     }
 
+    @Transactional
     public String createRefreshToken(User user) {
 
         // Generate a cryptographically secure random token.
@@ -57,6 +59,7 @@ public class RefreshTokenService {
         return rawToken;
     }
 
+    @Transactional(readOnly = true)
     public RefreshToken validateAndGet(String rawToken) {
 
         String tokenHash = hashToken(rawToken);
@@ -79,7 +82,8 @@ public class RefreshTokenService {
         return refreshToken;
     }
 
-   public RefreshTokenRotation rotateRefreshToken(String rawToken) {
+    @Transactional
+    public RefreshTokenRotation rotateRefreshToken(String rawToken) {
 
         RefreshToken oldToken = validateAndGet(rawToken);
 

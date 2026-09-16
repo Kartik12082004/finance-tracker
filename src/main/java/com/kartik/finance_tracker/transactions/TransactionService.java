@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.kartik.finance_tracker.accounts.Account;
 import com.kartik.finance_tracker.accounts.AccountBalanceService;
@@ -14,6 +15,7 @@ import com.kartik.finance_tracker.accounts.AccountType;
 import com.kartik.finance_tracker.categories.Category;
 import com.kartik.finance_tracker.categories.CategoryRepository;
 import com.kartik.finance_tracker.categories.CategoryType;
+import com.kartik.finance_tracker.common.exception.ResourceNotFoundException;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
@@ -40,6 +42,7 @@ public class TransactionService {
         this.accountBalanceService = accountBalanceService;
     }
 
+    @Transactional
     public Transaction createTransaction(
             UUID userId,
             UUID accountId,
@@ -50,31 +53,33 @@ public class TransactionService {
             String description,
             OffsetDateTime occurredAt
     ) {
-
         // Verify that the transaction belongs to an existing user.
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("User not found"));
 
         // Load and verify ownership of the account where the transaction originates.
         Account account = accountRepository.findById(accountId)
-                .orElseThrow(() -> new IllegalArgumentException("Account not found"));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Account not found"));
 
         if (!account.getUser().getId().equals(userId)) {
-            throw new IllegalArgumentException("Account does not belong to user");
+            throw new ResourceNotFoundException("Account not found");
         }
 
         Account destinationAccount = null;
 
         if (destinationAccountId != null) {
-
             // Transfers have a second account that receives the money.
             destinationAccount = accountRepository.findById(destinationAccountId)
                     .orElseThrow(() ->
-                            new IllegalArgumentException("Destination account not found"));
+                            new ResourceNotFoundException(
+                                    "Destination account not found"
+                            ));
 
             if (!destinationAccount.getUser().getId().equals(userId)) {
-                throw new IllegalArgumentException(
-                        "Destination account does not belong to user"
+                throw new ResourceNotFoundException(
+                        "Destination account not found"
                 );
             }
         }
@@ -82,13 +87,13 @@ public class TransactionService {
         Category category = null;
 
         if (categoryId != null) {
-
             // Income and expense transactions use categories for classification.
             category = categoryRepository.findById(categoryId)
-                    .orElseThrow(() -> new IllegalArgumentException("Category not found"));
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException("Category not found"));
 
             if (!category.getUser().getId().equals(userId)) {
-                throw new IllegalArgumentException("Category does not belong to user");
+                throw new ResourceNotFoundException("Category not found");
             }
         }
 
@@ -202,10 +207,11 @@ public class TransactionService {
         return transactionRepository.save(transaction);
     }
 
+    @Transactional(readOnly = true)
     public List<Transaction> getTransactions(UUID userId) {
         // Only return transactions owned by the requested user.
         if (!userRepository.existsById(userId)) {
-            throw new IllegalArgumentException("User not found");
+            throw new ResourceNotFoundException("User not found");
         }
 
         return transactionRepository.findAllByUser_Id(userId);
@@ -217,7 +223,6 @@ public class TransactionService {
             TransactionType type,
             BigDecimal amount
     ) {
-
         // Income increases the balance, so it does not require a funds check.
         if (type == TransactionType.INCOME) {
             return;
@@ -242,9 +247,7 @@ public class TransactionService {
 
             // Normal asset accounts cannot be allowed to go below zero.
             if (amount.compareTo(currentBalance) > 0) {
-                throw new IllegalArgumentException(
-                        "Insufficient funds"
-                );
+                throw new IllegalArgumentException("Insufficient funds");
             }
 
             return;
@@ -254,9 +257,7 @@ public class TransactionService {
 
             // The source account must have enough money for the transfer.
             if (amount.compareTo(currentBalance) > 0) {
-                throw new IllegalArgumentException(
-                        "Insufficient funds"
-                );
+                throw new IllegalArgumentException("Insufficient funds");
             }
 
             if (destinationAccount.getType() == AccountType.CREDIT_CARD) {

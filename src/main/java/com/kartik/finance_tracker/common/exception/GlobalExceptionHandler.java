@@ -11,6 +11,18 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(ResourceNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiErrorResponse handleResourceNotFoundException(
+            ResourceNotFoundException exception
+    ) {
+        // Resources outside the authenticated user's scope are treated as not found.
+        return new ApiErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                exception.getMessage()
+        );
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiErrorResponse handleIllegalArgumentException(
@@ -52,4 +64,5 @@ public class GlobalExceptionHandler {
                 "Invalid request body"
         );
     }
+    
 }

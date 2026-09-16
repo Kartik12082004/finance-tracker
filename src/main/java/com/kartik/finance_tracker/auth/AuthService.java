@@ -2,6 +2,7 @@ package com.kartik.finance_tracker.auth;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.kartik.finance_tracker.auth.dto.AuthResponse;
 import com.kartik.finance_tracker.auth.dto.LoginRequest;
@@ -32,6 +33,7 @@ public class AuthService {
         this.refreshTokenService = refreshTokenService;
     }
 
+    @Transactional
     public AuthResponse register(RegisterRequest request) {
 
         // Each email can belong to only one Finance Tracker user.
@@ -67,6 +69,7 @@ public class AuthService {
         );
     }
 
+    @Transactional
     public AuthResponse login(LoginRequest request) {
 
         // Find the user associated with the supplied email.
@@ -99,6 +102,7 @@ public class AuthService {
         );
     }
 
+    @Transactional
     public AuthResponse refresh(String rawRefreshToken) {
 
         // Validate the existing refresh token and rotate it.

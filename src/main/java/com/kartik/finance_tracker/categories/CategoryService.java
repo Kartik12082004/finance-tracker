@@ -4,7 +4,9 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import com.kartik.finance_tracker.common.exception.ResourceNotFoundException;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
@@ -22,6 +24,7 @@ public class CategoryService {
         this.userRepository = userRepository;
     }
 
+    @Transactional
     public Category createCategory(
             UUID userId,
             String name,
@@ -29,25 +32,26 @@ public class CategoryService {
             UUID parentId,
             boolean isDefault
     ) {
-
         // A category must always belong to an existing user.
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("User not found"));
 
         Category parent = null;
 
         if (parentId != null) {
-
             // Find the requested parent before creating the category.
             parent = categoryRepository.findById(parentId)
                     .orElseThrow(() ->
-                            new IllegalArgumentException("Parent category not found"));
+                            new ResourceNotFoundException(
+                                    "Parent category not found"
+                            ));
 
             // Categories are user-owned, so a user cannot use another
             // user's category as the parent of their own category.
             if (!parent.getUser().getId().equals(userId)) {
-                throw new IllegalArgumentException(
-                        "Parent category does not belong to user"
+                throw new ResourceNotFoundException(
+                        "Parent category not found"
                 );
             }
 
@@ -70,10 +74,11 @@ public class CategoryService {
         return categoryRepository.save(category);
     }
 
+    @Transactional(readOnly = true)
     public List<Category> getCategories(UUID userId) {
         // Only return categories owned by the requested user.
         if (!userRepository.existsById(userId)) {
-            throw new IllegalArgumentException("User not found");
+            throw new ResourceNotFoundException("User not found");
         }
 
         return categoryRepository.findAllByUser_Id(userId);
