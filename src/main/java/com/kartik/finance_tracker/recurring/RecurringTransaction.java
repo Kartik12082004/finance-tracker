@@ -213,4 +213,14 @@ public class RecurringTransaction {
         this.pausedUntil = null;
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
+
+    public void advanceNextOccurrence() {
+        this.nextOccurrence = switch (frequencyUnit) {
+            case WEEK -> nextOccurrence.plusWeeks(frequencyInterval);
+            case MONTH -> nextOccurrence.plusMonths(frequencyInterval);
+            case YEAR -> nextOccurrence.plusYears(frequencyInterval);
+        };
+
+        this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
 }
