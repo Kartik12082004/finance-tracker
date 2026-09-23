@@ -127,6 +127,56 @@ class RecurringTransactionGenerationServiceTest {
     }
 
     @Test
+    void shouldPreserveMonthlyDayAnchorAfterShortMonth() {
+        LocalDate januaryOccurrence = LocalDate.of(2026, 1, 31);
+
+        RecurringTransaction recurringTransaction =
+                new RecurringTransaction(
+                        user,
+                        account,
+                        category,
+                        TransactionType.EXPENSE,
+                        new BigDecimal("649.00"),
+                        "Netflix",
+                        RecurringFrequencyUnit.MONTH,
+                        1,
+                        januaryOccurrence
+                );
+
+        /*
+         * January 31 -> February 28 because February has no 31st.
+         */
+        when(recurringTransactionRepository.findDueRecurringTransactions(
+                januaryOccurrence
+        )).thenReturn(List.of(recurringTransaction));
+
+        generationService.generateDueTransactions(januaryOccurrence);
+
+        assertEquals(
+                LocalDate.of(2026, 2, 28),
+                recurringTransaction.getNextOccurrence()
+        );
+
+        /*
+         * The original day-of-month anchor must still be 31.
+         * Therefore the following occurrence must return to March 31
+         * rather than permanently drifting to March 28.
+         */
+        when(recurringTransactionRepository.findDueRecurringTransactions(
+                LocalDate.of(2026, 2, 28)
+        )).thenReturn(List.of(recurringTransaction));
+
+        generationService.generateDueTransactions(
+                LocalDate.of(2026, 2, 28)
+        );
+
+        assertEquals(
+                LocalDate.of(2026, 3, 31),
+                recurringTransaction.getNextOccurrence()
+        );
+    }
+
+    @Test
     void shouldAdvanceByConfiguredFrequency() {
         LocalDate occurrenceDate = LocalDate.of(2026, 9, 22);
 
