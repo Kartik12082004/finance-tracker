@@ -12,8 +12,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
@@ -29,10 +27,8 @@ import lombok.NoArgsConstructor;
 public class Investment {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    // Every investment belongs to exactly one user.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
@@ -104,14 +100,14 @@ public class Investment {
     }
 
     public void setAveragePurchasePrice(
-                BigDecimal averagePurchasePrice
-        ) {
-            this.averagePurchasePrice = averagePurchasePrice;
-            this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
-        }
-        public void setCurrentValue(BigDecimal currentValue) {
-        this.currentValue = currentValue;
+            BigDecimal averagePurchasePrice
+    ) {
+        this.averagePurchasePrice = averagePurchasePrice;
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
+    public void setCurrentValue(BigDecimal currentValue) {
+        this.currentValue = currentValue;
+        this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
 }

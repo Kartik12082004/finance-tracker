@@ -23,6 +23,7 @@ import com.kartik.finance_tracker.categories.CategoryRepository;
 import com.kartik.finance_tracker.categories.CategoryType;
 import com.kartik.finance_tracker.transactions.Transaction;
 import com.kartik.finance_tracker.transactions.TransactionRepository;
+import com.kartik.finance_tracker.transactions.TransactionService;
 import com.kartik.finance_tracker.transactions.TransactionType;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
@@ -40,6 +41,9 @@ class AnalyticsCacheIntegrationTest
 
     @Autowired
     private TransactionRepository transactionRepository;
+
+    @Autowired
+    private TransactionService transactionService;
 
     @Autowired
     private UserRepository userRepository;
@@ -160,6 +164,78 @@ class AnalyticsCacheIntegrationTest
 
         assertThat(cache.get(cacheKey))
                 .isNotNull();
+    }
+
+    @Test
+    void createTransaction_shouldEvictAffectedMonthlySummary() {
+
+        /*
+         * First call populates the September cache entry.
+         */
+        var beforeTransaction =
+                analyticsService.getMonthlySummary(
+                        user.getId(),
+                        2026,
+                        9
+                );
+
+        assertThat(beforeTransaction.totalIncome())
+                .isEqualByComparingTo("75000.00");
+
+        Cache cache = cacheManager.getCache("monthlySummary");
+
+        assertThat(cache).isNotNull();
+
+        String cacheKey =
+                user.getId() + ":2026:9";
+
+        assertThat(cache.get(cacheKey))
+                .isNotNull();
+
+        /*
+         * Creating a September transaction changes the data used by
+         * the September monthly summary.
+         *
+         * TransactionService should therefore evict this cache entry.
+         */
+        transactionService.createTransaction(
+                user.getId(),
+                account.getId(),
+                null,
+                incomeCategory.getId(),
+                TransactionType.INCOME,
+                new BigDecimal("25000.00"),
+                "Additional September income",
+                OffsetDateTime.of(
+                        2026, 9, 20, 0, 0, 0, 0, ZoneOffset.UTC
+                )
+        );
+
+        /*
+         * The old September result must have been evicted.
+         */
+        assertThat(cache.get(cacheKey))
+                .isNull();
+
+        /*
+         * The next request must calculate the summary using the updated
+         * transaction data rather than returning the stale cached result.
+         */
+        var afterTransaction =
+                analyticsService.getMonthlySummary(
+                        user.getId(),
+                        2026,
+                        9
+                );
+
+        assertThat(afterTransaction.totalIncome())
+                .isEqualByComparingTo("100000.00");
+
+        assertThat(afterTransaction.totalExpenses())
+                .isEqualByComparingTo("42000.00");
+
+        assertThat(afterTransaction.netSavings())
+                .isEqualByComparingTo("58000.00");
     }
 
     private Transaction saveTransaction(

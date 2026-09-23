@@ -44,7 +44,7 @@ public class CategoryController {
                 request.name(),
                 request.type(),
                 request.parentId(),
-                request.isDefault()
+                false
         );
 
         return new CategoryResponse(

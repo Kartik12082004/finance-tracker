@@ -40,17 +40,19 @@ public class GlobalExceptionHandler {
     public ApiErrorResponse handleMethodArgumentNotValidException(
             MethodArgumentNotValidException exception
     ) {
-        // Return the validation message from the first invalid request field.
+        // Return the first available validation message from the request.
         String message = exception.getBindingResult()
-                .getFieldErrors()
-                .getFirst()
-                .getDefaultMessage();
+                .getAllErrors()
+                .stream()
+                .findFirst()
+                .map(error -> error.getDefaultMessage())
+                .orElse("Invalid request");
 
         return new ApiErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
                 message
         );
-    }
+   }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)

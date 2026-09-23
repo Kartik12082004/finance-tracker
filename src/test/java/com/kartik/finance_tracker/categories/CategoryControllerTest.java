@@ -4,6 +4,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
 import java.util.UUID;
@@ -13,11 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.kartik.finance_tracker.security.CurrentUserService;
 import com.kartik.finance_tracker.users.User;
@@ -68,14 +67,13 @@ public class CategoryControllerTest {
                 any(Boolean.class)
         )).thenReturn(category);
 
-        // The API should return 201 when a category is successfully created.
+        // isDefault is controlled by the backend and is not accepted from clients.
         mockMvc.perform(post("/api/categories")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
                             "name": "Food",
-                            "type": "EXPENSE",
-                            "isDefault": true
+                            "type": "EXPENSE"
                         }
                         """))
                 .andExpect(status().isCreated())
@@ -114,7 +112,7 @@ public class CategoryControllerTest {
                 false
         );
 
-        // The API should return the parent's ID when creating a child category.
+        // The backend decides whether a category is a default category.
         when(categoryService.createCategory(
                 any(UUID.class),
                 any(String.class),
@@ -129,8 +127,7 @@ public class CategoryControllerTest {
                         {
                             "name": "Groceries",
                             "type": "EXPENSE",
-                            "parentId": "%s",
-                            "isDefault": false
+                            "parentId": "%s"
                         }
                         """.formatted(parent.getId())))
                 .andExpect(status().isCreated())

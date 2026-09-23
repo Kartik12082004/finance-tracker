@@ -27,8 +27,8 @@ public class SecurityConfig {
                 // CSRF protection is therefore not needed for our REST API.
                 .csrf(csrf -> csrf.disable())
                 
-                // Authentication/authorization rules will be tightened up later on.
-                // For now, allow the native auth endpoints and OAuth2 login flow.
+                // Authentication endpoints and OAuth2 login flow must remain public.
+                // All other application endpoints require authentication.
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
                                 "/api/auth/**",

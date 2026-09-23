@@ -17,8 +17,6 @@ public record CreateCategoryRequest(
         @NotNull(message = "Category type is required")
         CategoryType type,
 
-        UUID parentId,
-
-        boolean isDefault
+        UUID parentId
 ) {
 }

@@ -11,6 +11,7 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.cache.CacheManager;
 
 import com.kartik.finance_tracker.accounts.Account;
 import com.kartik.finance_tracker.accounts.AccountBalanceService;
@@ -29,6 +30,7 @@ class TransactionServiceTest {
     private AccountRepository accountRepository;
     private CategoryRepository categoryRepository;
     private AccountBalanceService accountBalanceService;
+    private CacheManager cacheManager;
 
     private TransactionService transactionService;
 
@@ -44,13 +46,15 @@ class TransactionServiceTest {
         accountRepository = mock(AccountRepository.class);
         categoryRepository = mock(CategoryRepository.class);
         accountBalanceService = mock(AccountBalanceService.class);
+        cacheManager = mock(CacheManager.class);
 
         transactionService = new TransactionService(
                 transactionRepository,
                 userRepository,
                 accountRepository,
                 categoryRepository,
-                accountBalanceService
+                accountBalanceService,
+                cacheManager
         );
 
         // All tests use one user so ownership rules can be tested consistently.
