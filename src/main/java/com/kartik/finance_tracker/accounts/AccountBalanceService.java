@@ -5,8 +5,10 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import com.kartik.finance_tracker.investments.InvestmentTransaction;
+import com.kartik.finance_tracker.investments.InvestmentTransactionRepository;
+import com.kartik.finance_tracker.investments.InvestmentTransactionType;
 import com.kartik.finance_tracker.transactions.Transaction;
 import com.kartik.finance_tracker.transactions.TransactionRepository;
 import com.kartik.finance_tracker.transactions.TransactionType;
@@ -16,28 +18,40 @@ public class AccountBalanceService {
 
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
+    private final InvestmentTransactionRepository investmentTransactionRepository;
 
     public AccountBalanceService(
             AccountRepository accountRepository,
-            TransactionRepository transactionRepository
+            TransactionRepository transactionRepository,
+            InvestmentTransactionRepository investmentTransactionRepository
     ) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
+        this.investmentTransactionRepository = investmentTransactionRepository;
     }
 
-    @Transactional(readOnly = true)
     public BigDecimal calculateBalance(UUID accountId) {
 
         Account account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found"));
 
-        // A transaction can affect an account either as the source account
-        // or as the destination account of a transfer.
+        /*
+         * Normal transactions can affect an account either as the source
+         * account or as the destination account of a transfer.
+         */
         List<Transaction> transactions =
                 transactionRepository.findAllByAccount_IdOrDestinationAccount_Id(
                         accountId,
                         accountId
                 );
+
+        /*
+         * Investment transactions are stored separately from normal
+         * transactions, so they must be included separately when calculating
+         * the account's current balance.
+         */
+        List<InvestmentTransaction> investmentTransactions =
+                investmentTransactionRepository.findByAccount_Id(accountId);
 
         BigDecimal balance = account.getOpeningBalance();
 
@@ -96,6 +110,24 @@ public class AccountBalanceService {
                 if (transaction.getType() == TransactionType.EXPENSE) {
                     balance = balance.subtract(transaction.getAmount());
                 }
+            }
+        }
+
+        /*
+         * Investment BUY/SELL records represent money moving between the
+         * account and the investment portfolio.
+         *
+         * BUY  -> money leaves the account.
+         * SELL -> money returns to the account.
+         */
+        for (InvestmentTransaction investmentTransaction : investmentTransactions) {
+
+            if (investmentTransaction.getType() == InvestmentTransactionType.BUY) {
+                balance = balance.subtract(investmentTransaction.getAmount());
+            }
+
+            if (investmentTransaction.getType() == InvestmentTransactionType.SELL) {
+                balance = balance.add(investmentTransaction.getAmount());
             }
         }
 

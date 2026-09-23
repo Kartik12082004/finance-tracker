@@ -1,6 +1,7 @@
 package com.kartik.finance_tracker.accounts;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -11,6 +12,11 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.kartik.finance_tracker.investments.Investment;
+import com.kartik.finance_tracker.investments.InvestmentTransaction;
+import com.kartik.finance_tracker.investments.InvestmentTransactionRepository;
+import com.kartik.finance_tracker.investments.InvestmentTransactionType;
+import com.kartik.finance_tracker.investments.InvestmentType;
 import com.kartik.finance_tracker.transactions.Transaction;
 import com.kartik.finance_tracker.transactions.TransactionRepository;
 import com.kartik.finance_tracker.transactions.TransactionType;
@@ -20,6 +26,7 @@ class AccountBalanceServiceTest {
 
     private AccountRepository accountRepository;
     private TransactionRepository transactionRepository;
+    private InvestmentTransactionRepository investmentTransactionRepository;
     private AccountBalanceService accountBalanceService;
 
     private User user;
@@ -28,10 +35,12 @@ class AccountBalanceServiceTest {
     void setUp() {
         accountRepository = mock(AccountRepository.class);
         transactionRepository = mock(TransactionRepository.class);
+        investmentTransactionRepository = mock(InvestmentTransactionRepository.class);
 
         accountBalanceService = new AccountBalanceService(
                 accountRepository,
-                transactionRepository
+                transactionRepository,
+                investmentTransactionRepository
         );
 
         // All test accounts and transactions belong to the same test user.
@@ -40,6 +49,11 @@ class AccountBalanceServiceTest {
                 "hashedpassword",
                 "Kartik"
         );
+
+        // Most existing tests do not contain investment transactions.
+        // Return an empty list unless a test explicitly adds investment activity.
+        when(investmentTransactionRepository.findByAccount_Id(any()))
+                .thenReturn(List.of());
     }
 
     @Test
@@ -225,6 +239,82 @@ class AccountBalanceServiceTest {
 
         // A refund reduces the amount owed and can create a card credit.
         assertThat(balance).isEqualByComparingTo("-1000.00");
+    }
+
+    @Test
+    void calculateBalance_shouldSubtractInvestmentBuy() {
+
+        Account account = account(
+                AccountType.BANK,
+                new BigDecimal("10000.00")
+        );
+
+        Investment investment = new Investment(
+                user,
+                "Nifty 50 ETF",
+                InvestmentType.ETF
+        );
+
+        InvestmentTransaction buy = new InvestmentTransaction(
+                user,
+                investment,
+                account,
+                InvestmentTransactionType.BUY,
+                new BigDecimal("3000.00"),
+                new BigDecimal("10"),
+                new BigDecimal("300.00"),
+                java.time.OffsetDateTime.now()
+        );
+
+        mockAccount(account);
+        mockTransactions(account);
+
+        when(investmentTransactionRepository.findByAccount_Id(account.getId()))
+                .thenReturn(List.of(buy));
+
+        BigDecimal balance =
+                accountBalanceService.calculateBalance(account.getId());
+
+        // 10,000 opening balance - 3,000 investment purchase = 7,000.
+        assertThat(balance).isEqualByComparingTo("7000.00");
+    }
+
+    @Test
+    void calculateBalance_shouldAddInvestmentSell() {
+
+        Account account = account(
+                AccountType.BANK,
+                new BigDecimal("5000.00")
+        );
+
+        Investment investment = new Investment(
+                user,
+                "Nifty 50 ETF",
+                InvestmentType.ETF
+        );
+
+        InvestmentTransaction sell = new InvestmentTransaction(
+                user,
+                investment,
+                account,
+                InvestmentTransactionType.SELL,
+                new BigDecimal("2000.00"),
+                new BigDecimal("5"),
+                new BigDecimal("400.00"),
+                java.time.OffsetDateTime.now()
+        );
+
+        mockAccount(account);
+        mockTransactions(account);
+
+        when(investmentTransactionRepository.findByAccount_Id(account.getId()))
+                .thenReturn(List.of(sell));
+
+        BigDecimal balance =
+                accountBalanceService.calculateBalance(account.getId());
+
+        // 5,000 opening balance + 2,000 investment sale proceeds = 7,000.
+        assertThat(balance).isEqualByComparingTo("7000.00");
     }
 
     private Account account(
