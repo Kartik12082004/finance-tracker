@@ -10,9 +10,18 @@ import {
   getAccounts,
   updateAccount,
 } from "./api/accountApi";
+import {
+  clearAuthSession,
+  getAuthSession,
+  saveAuthSession,
+} from "./auth/authStorage";
 
 function App() {
-  const [authResponse, setAuthResponse] = useState<AuthResponse | null>(null);
+  // Restore the previous authentication session when the application starts.
+  // This allows the user to remain logged in after refreshing the page.
+  const [authResponse, setAuthResponse] = useState<AuthResponse | null>(() =>
+    getAuthSession(),
+  );
 
   const [accounts, setAccounts] = useState<Account[]>([]);
 
@@ -21,13 +30,29 @@ function App() {
       return;
     }
 
-    getAccounts(authResponse.accessToken).then((accountsFromApi) => {
-      setAccounts(accountsFromApi);
-    });
+    getAccounts()
+      .then((accountsFromApi) => {
+        setAccounts(accountsFromApi);
+      })
+      .catch(() => {
+        // The API client clears the session when token refresh fails.
+        // We also clear React state so the UI returns to the login screen.
+        clearAuthSession();
+        setAuthResponse(null);
+        setAccounts([]);
+      });
   }, [authResponse]);
 
   function handleLogin(response: AuthResponse) {
+    // Keep React state and browser session storage synchronized.
+    saveAuthSession(response);
     setAuthResponse(response);
+  }
+
+  function handleLogout() {
+    clearAuthSession();
+    setAuthResponse(null);
+    setAccounts([]);
   }
 
   async function addAccount(
@@ -40,7 +65,7 @@ function App() {
       throw new Error("User is not authenticated.");
     }
 
-    const createdAccount = await createAccount(authResponse.accessToken, {
+    const createdAccount = await createAccount({
       name,
       type,
       currency,
@@ -62,15 +87,11 @@ function App() {
       throw new Error("User is not authenticated.");
     }
 
-    const updatedAccount = await updateAccount(
-      authResponse.accessToken,
-      accountId,
-      {
-        name,
-        type,
-        currency,
-      },
-    );
+    const updatedAccount = await updateAccount(accountId, {
+      name,
+      type,
+      currency,
+    });
 
     // Replace the old account with the backend's updated version.
     // This keeps the UI synchronized with the backend response.
@@ -88,7 +109,7 @@ function App() {
 
     // Delete from the backend first.
     // The UI should only change after the backend confirms deletion.
-    await deleteAccount(authResponse.accessToken, accountId);
+    await deleteAccount(accountId);
 
     // The backend returned successfully, so remove the account
     // from the local React state.
@@ -106,6 +127,10 @@ function App() {
       <h1>Finance Tracker</h1>
 
       <p>Welcome, {authResponse.name}!</p>
+
+      <button type="button" onClick={handleLogout}>
+        Logout
+      </button>
 
       <AddAccountForm onAddAccount={addAccount} />
 
