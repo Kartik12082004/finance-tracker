@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import AccountList from "./components/AccountList";
 import AddAccountForm from "./components/AddAccountForm";
 import AddTransactionForm from "./components/AddTransactionForm";
+import Dashboard from "./components/Dashboard";
 import LoginForm from "./components/LoginForm";
 import RegisterForm from "./components/RegisterForm";
 import TransactionList from "./components/TransactionList";
@@ -38,6 +39,7 @@ function App() {
   const [accountBalances, setAccountBalances] = useState<AccountBalance[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
 
   useEffect(() => {
     if (authResponse === null) {
@@ -123,6 +125,9 @@ function App() {
     // Fetching balances keeps the calculated balance synchronized.
     const updatedBalances = await getAccountBalances();
     setAccountBalances(updatedBalances);
+
+    // Refresh dashboard analytics because account balances changed.
+    setDashboardRefreshKey((current) => current + 1);
   }
 
   async function updateExistingAccount(
@@ -167,6 +172,9 @@ function App() {
 
     const updatedBalances = await getAccountBalances();
     setAccountBalances(updatedBalances);
+
+    // Refresh dashboard analytics because account balances changed.
+    setDashboardRefreshKey((current) => current + 1);
   }
 
   async function refreshTransactions() {
@@ -177,6 +185,9 @@ function App() {
 
     setTransactions(transactionsFromApi);
     setAccountBalances(accountBalancesFromApi);
+
+    // Refresh dashboard analytics after a transaction is created or voided.
+    setDashboardRefreshKey((current) => current + 1);
   }
 
   async function handleVoidTransaction(transactionId: string) {
@@ -215,6 +226,8 @@ function App() {
       <button type="button" onClick={handleLogout}>
         Logout
       </button>
+
+      <Dashboard refreshKey={dashboardRefreshKey} />
 
       <AddAccountForm onAddAccount={addAccount} />
 

@@ -8,7 +8,11 @@ type AccountCardProps = {
   openingBalance: number;
   currentBalance: number;
   onRemove: () => Promise<void>;
-  onUpdate: (name: string, type: AccountType) => Promise<void>;
+  onUpdate: (
+    name: string,
+    type: AccountType,
+    currency: string,
+  ) => Promise<void>;
 };
 
 export default function AccountCard({
@@ -47,7 +51,7 @@ export default function AccountCard({
 
     try {
       setIsUpdating(true);
-      await onUpdate(trimmedName, editedType);
+      await onUpdate(trimmedName, editedType, currency);
       setIsEditing(false);
     } finally {
       setIsUpdating(false);
