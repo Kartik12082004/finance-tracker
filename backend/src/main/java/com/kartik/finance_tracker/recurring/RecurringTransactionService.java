@@ -49,6 +49,7 @@ public class RecurringTransactionService {
         Category category = getCategoryForUser(request.categoryId(), userId);
 
         validateTransactionType(request.type());
+        validateAmountScale(request.amount());
 
         RecurringTransaction recurringTransaction =
                 new RecurringTransaction(
@@ -93,6 +94,7 @@ public class RecurringTransactionService {
         Category category = getCategoryForUser(request.categoryId(), userId);
 
         validateTransactionType(request.type());
+        validateAmountScale(request.amount());
 
         /*
          * Editing a recurring rule only changes future generated transactions.
@@ -237,6 +239,14 @@ public class RecurringTransactionService {
         if (type == TransactionType.TRANSFER) {
             throw new IllegalArgumentException(
                     "Recurring transactions cannot be transfers"
+            );
+        }
+    }
+
+    private void validateAmountScale(java.math.BigDecimal amount) {
+        if (amount.scale() > 2) {
+            throw new IllegalArgumentException(
+                    "Amount cannot have more than 2 decimal places"
             );
         }
     }

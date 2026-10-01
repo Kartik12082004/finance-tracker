@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -50,6 +51,32 @@ public class TransactionController {
                 request.occurredAt()
         );
 
+        return toResponse(transaction);
+    }
+
+    @PostMapping("/{transactionId}/void")
+    public TransactionResponse voidTransaction(
+            @PathVariable UUID transactionId
+    ) {
+        UUID userId = currentUserService.getCurrentUserId();
+
+        Transaction transaction =
+                transactionService.voidTransaction(userId, transactionId);
+
+        return toResponse(transaction);
+    }
+
+    @GetMapping
+    public List<TransactionResponse> getTransactions() {
+        UUID userId = currentUserService.getCurrentUserId();
+
+        return transactionService.getTransactions(userId)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    private TransactionResponse toResponse(Transaction transaction) {
         return new TransactionResponse(
                 transaction.getId(),
                 transaction.getAccount().getId(),
@@ -60,36 +87,12 @@ public class TransactionController {
                         ? transaction.getCategory().getId()
                         : null,
                 transaction.getType(),
+                transaction.getStatus(),
                 transaction.getAmount(),
                 transaction.getDescription(),
                 transaction.getOccurredAt(),
                 transaction.getCreatedAt(),
                 transaction.getUpdatedAt()
         );
-    }
-
-    @GetMapping
-    public List<TransactionResponse> getTransactions() {
-        UUID userId = currentUserService.getCurrentUserId();
-
-        return transactionService.getTransactions(userId)
-                .stream()
-                .map(transaction -> new TransactionResponse(
-                        transaction.getId(),
-                        transaction.getAccount().getId(),
-                        transaction.getDestinationAccount() != null
-                                ? transaction.getDestinationAccount().getId()
-                                : null,
-                        transaction.getCategory() != null
-                                ? transaction.getCategory().getId()
-                                : null,
-                        transaction.getType(),
-                        transaction.getAmount(),
-                        transaction.getDescription(),
-                        transaction.getOccurredAt(),
-                        transaction.getCreatedAt(),
-                        transaction.getUpdatedAt()
-                ))
-                .toList();
     }
 }

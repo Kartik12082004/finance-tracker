@@ -51,6 +51,9 @@ public class Transaction {
         this.description = description;
         this.occurredAt = occurredAt;
 
+        // Every newly created transaction is financially active.
+        this.status = TransactionStatus.POSTED;
+
         OffsetDateTime now = OffsetDateTime.now();
         this.createdAt = now;
         this.updatedAt = now;
@@ -89,7 +92,11 @@ public class Transaction {
     @Column(nullable = false, length = 20)
     private TransactionType type;
 
-    @Column(nullable = false, precision = 19, scale = 4)
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private TransactionStatus status;
+
+    @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 
     @Column(length = 255)

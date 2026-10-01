@@ -4,9 +4,10 @@ import type { AuthResponse } from "../types/auth";
 
 type LoginFormProps = {
   onLogin: (authResponse: AuthResponse) => void;
+  onSwitchToRegister: () => void;
 };
 
-function LoginForm({ onLogin }: LoginFormProps) {
+function LoginForm({ onLogin, onSwitchToRegister }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -74,6 +75,13 @@ function LoginForm({ onLogin }: LoginFormProps) {
       <button type="submit" disabled={isSubmitting}>
         {isSubmitting ? "Logging in..." : "Login"}
       </button>
+
+      <p>
+        Don't have an account?{" "}
+        <button type="button" onClick={onSwitchToRegister}>
+          Create Account
+        </button>
+      </p>
     </form>
   );
 }

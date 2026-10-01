@@ -8,6 +8,7 @@ import static org.mockito.Mockito.*;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -430,21 +431,21 @@ class TransactionServiceTest {
     }
 
     @Test
-    void createTransaction_shouldRejectAmountWithMoreThanFourDecimalPlaces() {
+    void createTransaction_shouldRejectAmountWithMoreThanTwoDecimalPlaces() {
 
         stubUserAndAccount(bankAccount);
 
-        // Amounts are stored with a maximum precision of four decimal places.
+        // Amounts are stored with a maximum precision of two decimal places.
         // More precise values must be rejected instead of silently rounded.
         assertThatThrownBy(() ->
                 create(
                         null,
                         TransactionType.EXPENSE,
-                        new BigDecimal("500.12345")
+                        new BigDecimal("500.123")
                 )
         )
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Amount cannot have more than 4 decimal places");
+                .hasMessage("Amount cannot have more than 2 decimal places");
 
         verify(transactionRepository, never())
                 .save(any(Transaction.class));
@@ -645,8 +646,170 @@ class TransactionServiceTest {
                 .save(any(Transaction.class));
     }
 
+    @Test
+    void createTransaction_shouldDefaultToPostedStatus() {
+
+        Category category = category(
+                "Food",
+                CategoryType.EXPENSE
+        );
+
+        stubUserAndAccount(bankAccount);
+        stubCategory(category);
+
+        when(accountBalanceService.calculateBalance(bankAccount.getId()))
+                .thenReturn(new BigDecimal("10000.00"));
+
+        when(transactionRepository.save(any(Transaction.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Transaction result = create(
+                category.getId(),
+                TransactionType.EXPENSE,
+                new BigDecimal("500.00")
+        );
+
+        assertThat(result.getStatus())
+                .isEqualTo(TransactionStatus.POSTED);
+    }
+
+    @Test
+    void voidTransaction_shouldMarkPostedTransactionAsVoided() {
+
+        Transaction transaction = new Transaction(
+                user,
+                bankAccount,
+                null,
+                null,
+                TransactionType.EXPENSE,
+                new BigDecimal("500.00"),
+                "Groceries",
+                OffsetDateTime.parse("2026-09-13T10:00:00+05:30")
+        );
+
+        UUID transactionId = transaction.getId();
+
+        when(transactionRepository.findById(transactionId))
+                .thenReturn(Optional.of(transaction));
+
+        when(transactionRepository.save(any(Transaction.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Transaction result = transactionService.voidTransaction(
+                user.getId(),
+                transactionId
+        );
+
+        assertThat(result.getStatus())
+                .isEqualTo(TransactionStatus.VOIDED);
+
+        verify(transactionRepository).save(transaction);
+        verify(cacheManager).getCache("monthlySummary");
+    }
+
+    @Test
+    void voidTransaction_shouldRejectAlreadyVoidedTransaction() {
+
+        Transaction transaction = new Transaction(
+                user,
+                bankAccount,
+                null,
+                null,
+                TransactionType.EXPENSE,
+                new BigDecimal("500.00"),
+                "Groceries",
+                OffsetDateTime.parse("2026-09-13T10:00:00+05:30")
+        );
+
+        transaction.setStatus(TransactionStatus.VOIDED);
+
+        when(transactionRepository.findById(transaction.getId()))
+                .thenReturn(Optional.of(transaction));
+
+        assertThatThrownBy(() ->
+                transactionService.voidTransaction(
+                        user.getId(),
+                        transaction.getId()
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Transaction is already voided");
+
+        verify(transactionRepository, never())
+                .save(any(Transaction.class));
+    }
+
+    @Test
+    void voidTransaction_shouldRejectTransactionOwnedByAnotherUser() {
+
+        User otherUser = new User(
+                "other@example.com",
+                "hashed-password",
+                "Other"
+        );
+
+        Account otherAccount = new Account(
+                otherUser,
+                "Other Bank",
+                AccountType.BANK,
+                "INR",
+                BigDecimal.ZERO
+        );
+
+        Transaction transaction = new Transaction(
+                otherUser,
+                otherAccount,
+                null,
+                null,
+                TransactionType.EXPENSE,
+                new BigDecimal("500.00"),
+                "Other user's transaction",
+                OffsetDateTime.parse("2026-09-13T10:00:00+05:30")
+        );
+
+        when(transactionRepository.findById(transaction.getId()))
+                .thenReturn(Optional.of(transaction));
+
+        assertThatThrownBy(() ->
+                transactionService.voidTransaction(
+                        user.getId(),
+                        transaction.getId()
+                )
+        )
+                .isInstanceOf(
+                        com.kartik.finance_tracker.common.exception.ResourceNotFoundException.class
+                )
+                .hasMessage("Transaction not found");
+
+        verify(transactionRepository, never())
+                .save(any(Transaction.class));
+    }
+
+    @Test
+    void voidTransaction_shouldThrowWhenTransactionDoesNotExist() {
+
+        UUID transactionId = UUID.randomUUID();
+
+        when(transactionRepository.findById(transactionId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                transactionService.voidTransaction(
+                        user.getId(),
+                        transactionId
+                )
+        )
+                .isInstanceOf(
+                        com.kartik.finance_tracker.common.exception.ResourceNotFoundException.class
+                )
+                .hasMessage("Transaction not found");
+
+        verify(transactionRepository, never())
+                .save(any(Transaction.class));
+    }
+
     private Transaction create(
-            java.util.UUID categoryId,
+            UUID categoryId,
             TransactionType type,
             BigDecimal amount
     ) {

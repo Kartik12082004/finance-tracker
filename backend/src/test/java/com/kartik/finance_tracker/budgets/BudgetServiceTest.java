@@ -110,6 +110,38 @@ class BudgetServiceTest {
     }
 
     @Test
+    void shouldRejectAmountWithMoreThanTwoDecimalPlaces() {
+        CreateBudgetRequest request = new CreateBudgetRequest(
+                categoryId,
+                new BigDecimal("10000.123"),
+                BudgetPeriod.MONTHLY,
+                LocalDate.of(2026, 9, 1),
+                LocalDate.of(2026, 9, 30)
+        );
+
+        when(userRepository.findById(userId))
+                .thenReturn(Optional.of(user));
+
+        when(categoryRepository.findById(categoryId))
+                .thenReturn(Optional.of(category));
+
+        when(category.getUser()).thenReturn(user);
+        when(user.getId()).thenReturn(userId);
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> budgetService.createBudget(userId, request)
+        );
+
+        assertEquals(
+                "Amount cannot have more than 2 decimal places",
+                exception.getMessage()
+        );
+
+        verify(budgetRepository, never()).save(any());
+    }
+
+    @Test
     void shouldRejectWhenUserDoesNotExist() {
         CreateBudgetRequest request = createMonthlyRequest();
 

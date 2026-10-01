@@ -26,7 +26,13 @@ import java.util.UUID;
 @Table(name = "accounts")
 public class Account {
 
-    public Account(User user, String name, AccountType type, String currency, BigDecimal openingBalance) {
+    public Account(
+            User user,
+            String name,
+            AccountType type,
+            String currency,
+            BigDecimal openingBalance
+    ) {
         // Generate the ID in the application rather than relying on the database.
         this.id = UUID.randomUUID();
 
@@ -59,7 +65,7 @@ public class Account {
     @Column(nullable = false, length = 3)
     private String currency;
 
-    @Column(name = "opening_balance", nullable = false, precision = 19, scale = 4)
+    @Column(name = "opening_balance", nullable = false, precision = 19, scale = 2)
     private BigDecimal openingBalance;
 
     @Column(name = "created_at", nullable = false)

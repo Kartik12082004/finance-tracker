@@ -27,6 +27,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                 COALESCE(SUM(CASE WHEN t.type = :expenseType THEN t.amount ELSE 0 END), 0)
             FROM Transaction t
             WHERE t.user.id = :userId
+            AND t.status = com.kartik.finance_tracker.transactions.TransactionStatus.POSTED
             AND t.occurredAt >= :start
             AND t.occurredAt < :end
             """)
@@ -46,6 +47,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             FROM Transaction t
             JOIN t.category c
             WHERE t.user.id = :userId
+            AND t.status = com.kartik.finance_tracker.transactions.TransactionStatus.POSTED
             AND t.type = :expenseType
             AND t.occurredAt >= :start
             AND t.occurredAt < :end
@@ -66,17 +68,18 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                 COALESCE(SUM(CASE WHEN t.type = :expenseType THEN t.amount ELSE 0 END), 0)
             FROM Transaction t
             WHERE t.user.id = :userId
+            AND t.status = com.kartik.finance_tracker.transactions.TransactionStatus.POSTED
             AND t.occurredAt >= :start
             AND t.occurredAt < :end
             GROUP BY EXTRACT(MONTH FROM t.occurredAt)
             ORDER BY EXTRACT(MONTH FROM t.occurredAt)
-           """)
+            """)
     List<Object[]> findIncomeVsExpenseByMonth(
             UUID userId,
             TransactionType incomeType,
             TransactionType expenseType,
             OffsetDateTime start,
             OffsetDateTime end
-   );
+    );
 
 }

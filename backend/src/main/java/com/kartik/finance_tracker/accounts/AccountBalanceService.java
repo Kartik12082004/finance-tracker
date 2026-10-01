@@ -11,6 +11,7 @@ import com.kartik.finance_tracker.investments.InvestmentTransactionRepository;
 import com.kartik.finance_tracker.investments.InvestmentTransactionType;
 import com.kartik.finance_tracker.transactions.Transaction;
 import com.kartik.finance_tracker.transactions.TransactionRepository;
+import com.kartik.finance_tracker.transactions.TransactionStatus;
 import com.kartik.finance_tracker.transactions.TransactionType;
 
 @Service
@@ -56,6 +57,14 @@ public class AccountBalanceService {
         BigDecimal balance = account.getOpeningBalance();
 
         for (Transaction transaction : transactions) {
+
+            /*
+             * Voided transactions remain in the database for audit/history,
+             * but they no longer have any financial effect.
+             */
+            if (transaction.getStatus() == TransactionStatus.VOIDED) {
+                continue;
+            }
 
             if (transaction.getType() == TransactionType.TRANSFER) {
 

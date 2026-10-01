@@ -43,6 +43,12 @@ public class AccountService {
             BigDecimal openingBalance
     ) {
 
+        if (openingBalance != null && openingBalance.scale() > 2) {
+            throw new IllegalArgumentException(
+                    "Amount cannot have more than 2 decimal places"
+            );
+        }
+
         // Verify that the account is being created for an existing user.
         User user = userRepository.findById(userId)
                 .orElseThrow(() ->

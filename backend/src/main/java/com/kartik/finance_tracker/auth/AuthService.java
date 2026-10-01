@@ -10,6 +10,7 @@ import com.kartik.finance_tracker.auth.dto.RegisterRequest;
 import com.kartik.finance_tracker.auth.jwt.JwtService;
 import com.kartik.finance_tracker.auth.refresh.RefreshTokenRotation;
 import com.kartik.finance_tracker.auth.refresh.RefreshTokenService;
+import com.kartik.finance_tracker.categories.CategoryService;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
@@ -20,17 +21,20 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
+    private final CategoryService categoryService;
 
     public AuthService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
-            RefreshTokenService refreshTokenService
+            RefreshTokenService refreshTokenService,
+            CategoryService categoryService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
+        this.categoryService = categoryService;
     }
 
     @Transactional
@@ -51,6 +55,12 @@ public class AuthService {
         );
 
         User savedUser = userRepository.save(user);
+
+        /*
+         * Every newly registered user receives the application's
+         * default category hierarchy.
+         */
+        categoryService.createDefaultCategories(savedUser);
 
         // Issue an access token immediately after successful registration.
         String accessToken = jwtService.generateAccessToken(savedUser.getId());

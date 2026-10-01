@@ -1,15 +1,24 @@
 import { useEffect, useState } from "react";
 import AccountList from "./components/AccountList";
 import AddAccountForm from "./components/AddAccountForm";
+import AddTransactionForm from "./components/AddTransactionForm";
 import LoginForm from "./components/LoginForm";
+import RegisterForm from "./components/RegisterForm";
+import TransactionList from "./components/TransactionList";
 import type { Account, AccountType } from "./types/account";
 import type { AuthResponse } from "./types/auth";
+import type { Category } from "./types/category";
+import type { Transaction } from "./types/transaction";
+import type { AccountBalance } from "./api/analyticsApi";
 import {
   createAccount,
   deleteAccount,
   getAccounts,
   updateAccount,
 } from "./api/accountApi";
+import { getAccountBalances } from "./api/analyticsApi";
+import { getCategories } from "./api/categoryApi";
+import { getTransactions, voidTransaction } from "./api/transactionApi";
 import {
   clearAuthSession,
   getAuthSession,
@@ -23,28 +32,59 @@ function App() {
     getAuthSession(),
   );
 
+  const [showRegister, setShowRegister] = useState(false);
+
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountBalances, setAccountBalances] = useState<AccountBalance[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
 
   useEffect(() => {
     if (authResponse === null) {
       return;
     }
 
-    getAccounts()
-      .then((accountsFromApi) => {
+    async function loadFinanceData() {
+      try {
+        const [
+          accountsFromApi,
+          accountBalancesFromApi,
+          categoriesFromApi,
+          transactionsFromApi,
+        ] = await Promise.all([
+          getAccounts(),
+          getAccountBalances(),
+          getCategories(),
+          getTransactions(),
+        ]);
+
         setAccounts(accountsFromApi);
-      })
-      .catch(() => {
+        setAccountBalances(accountBalancesFromApi);
+        setCategories(categoriesFromApi);
+        setTransactions(transactionsFromApi);
+      } catch {
         // The API client clears the session when token refresh fails.
         // We also clear React state so the UI returns to the login screen.
         clearAuthSession();
         setAuthResponse(null);
         setAccounts([]);
-      });
+        setAccountBalances([]);
+        setCategories([]);
+        setTransactions([]);
+      }
+    }
+
+    loadFinanceData();
   }, [authResponse]);
 
   function handleLogin(response: AuthResponse) {
-    // Keep React state and browser session storage synchronized.
+    saveAuthSession(response);
+    setAuthResponse(response);
+  }
+
+  function handleRegister(response: AuthResponse) {
+    // Registration already returns authenticated session tokens,
+    // so the newly registered user can enter the application immediately.
     saveAuthSession(response);
     setAuthResponse(response);
   }
@@ -53,6 +93,9 @@ function App() {
     clearAuthSession();
     setAuthResponse(null);
     setAccounts([]);
+    setAccountBalances([]);
+    setCategories([]);
+    setTransactions([]);
   }
 
   async function addAccount(
@@ -75,6 +118,11 @@ function App() {
     // Add the backend-created account to the UI immediately.
     // The backend remains the source of truth.
     setAccounts((currentAccounts) => [...currentAccounts, createdAccount]);
+
+    // A newly created account starts with its opening balance.
+    // Fetching balances keeps the calculated balance synchronized.
+    const updatedBalances = await getAccountBalances();
+    setAccountBalances(updatedBalances);
   }
 
   async function updateExistingAccount(
@@ -116,10 +164,46 @@ function App() {
     setAccounts((currentAccounts) =>
       currentAccounts.filter((account) => account.id !== accountId),
     );
+
+    const updatedBalances = await getAccountBalances();
+    setAccountBalances(updatedBalances);
+  }
+
+  async function refreshTransactions() {
+    const [transactionsFromApi, accountBalancesFromApi] = await Promise.all([
+      getTransactions(),
+      getAccountBalances(),
+    ]);
+
+    setTransactions(transactionsFromApi);
+    setAccountBalances(accountBalancesFromApi);
+  }
+
+  async function handleVoidTransaction(transactionId: string) {
+    if (authResponse === null) {
+      throw new Error("User is not authenticated.");
+    }
+
+    await voidTransaction(transactionId);
+    await refreshTransactions();
   }
 
   if (authResponse === null) {
-    return <LoginForm onLogin={handleLogin} />;
+    if (showRegister) {
+      return (
+        <RegisterForm
+          onRegister={handleRegister}
+          onSwitchToLogin={() => setShowRegister(false)}
+        />
+      );
+    }
+
+    return (
+      <LoginForm
+        onLogin={handleLogin}
+        onSwitchToRegister={() => setShowRegister(true)}
+      />
+    );
   }
 
   return (
@@ -136,8 +220,22 @@ function App() {
 
       <AccountList
         accounts={accounts}
+        accountBalances={accountBalances}
         onRemoveAccount={removeAccount}
         onUpdateAccount={updateExistingAccount}
+      />
+
+      <AddTransactionForm
+        accounts={accounts}
+        categories={categories}
+        onTransactionCreated={refreshTransactions}
+      />
+
+      <TransactionList
+        transactions={transactions}
+        accounts={accounts}
+        categories={categories}
+        onVoidTransaction={handleVoidTransaction}
       />
     </>
   );

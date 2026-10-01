@@ -90,6 +90,30 @@ class GoalServiceTest {
     }
 
     @Test
+    void shouldRejectGoalWithMoreThanTwoDecimalPlacesOnCreate() {
+        CreateGoalRequest request = new CreateGoalRequest(
+                "Gaming PC",
+                new BigDecimal("150000.123"),
+                LocalDate.of(2027, 12, 31)
+        );
+
+        when(userRepository.findById(userId))
+                .thenReturn(java.util.Optional.of(user));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> goalService.createGoal(userId, request)
+        );
+
+        assertEquals(
+                "Amount cannot have more than 2 decimal places",
+                exception.getMessage()
+        );
+
+        verify(goalRepository, never()).save(any());
+    }
+
+    @Test
     void shouldRejectMissingUser() {
         CreateGoalRequest request = new CreateGoalRequest(
                 "Gaming PC",
@@ -149,6 +173,31 @@ class GoalServiceTest {
     }
 
     @Test
+    void shouldRejectGoalWithMoreThanTwoDecimalPlacesOnUpdate() {
+        UpdateGoalRequest request = new UpdateGoalRequest(
+                "Gaming PC",
+                new BigDecimal("180000.123"),
+                LocalDate.of(2028, 12, 31)
+        );
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> goalService.updateGoal(
+                        userId,
+                        goalId,
+                        request
+                )
+        );
+
+        assertEquals(
+                "Amount cannot have more than 2 decimal places",
+                exception.getMessage()
+        );
+
+        verify(goalRepository, never()).save(any());
+    }
+
+    @Test
     void shouldRejectTargetBelowCurrentAmount() {
         goal.addContribution(new BigDecimal("60000.00"));
 
@@ -184,6 +233,25 @@ class GoalServiceTest {
                 response.currentAmount()
         );
         assertEquals(GoalStatus.ACTIVE, response.status());
+    }
+
+    @Test
+    void shouldRejectContributionWithMoreThanTwoDecimalPlaces() {
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> goalService.contribute(
+                        userId,
+                        goalId,
+                        new BigDecimal("1000.123")
+                )
+        );
+
+        assertEquals(
+                "Amount cannot have more than 2 decimal places",
+                exception.getMessage()
+        );
+
+        verify(goalRepository, never()).save(any());
     }
 
     @Test

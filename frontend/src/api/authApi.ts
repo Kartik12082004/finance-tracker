@@ -5,9 +5,33 @@ type LoginRequest = {
   password: string;
 };
 
+type RegisterRequest = {
+  email: string;
+  password: string;
+  name: string;
+};
+
 type RefreshTokenRequest = {
   refreshToken: string;
 };
+
+export async function register(
+  request: RegisterRequest,
+): Promise<AuthResponse> {
+  const response = await fetch("http://localhost:8080/api/auth/register", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    throw new Error("Registration failed.");
+  }
+
+  return response.json();
+}
 
 export async function login(request: LoginRequest): Promise<AuthResponse> {
   const response = await fetch("http://localhost:8080/api/auth/login", {

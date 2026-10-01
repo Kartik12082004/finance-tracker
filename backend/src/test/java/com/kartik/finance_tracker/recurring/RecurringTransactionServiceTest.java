@@ -135,6 +135,43 @@ class RecurringTransactionServiceTest {
     }
 
     @Test
+    void shouldRejectAmountWithMoreThanTwoDecimalPlacesOnCreate() {
+        CreateRecurringTransactionRequest request =
+                new CreateRecurringTransactionRequest(
+                        accountId,
+                        categoryId,
+                        TransactionType.EXPENSE,
+                        new BigDecimal("649.123"),
+                        "Netflix",
+                        RecurringFrequencyUnit.MONTH,
+                        1,
+                        LocalDate.of(2026, 10, 1)
+                );
+
+        when(userRepository.findById(userId))
+                .thenReturn(Optional.of(user));
+
+        when(accountRepository.findById(accountId))
+                .thenReturn(Optional.of(account));
+
+        when(categoryRepository.findById(categoryId))
+                .thenReturn(Optional.of(category));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> recurringTransactionService
+                        .createRecurringTransaction(userId, request)
+        );
+
+        assertEquals(
+                "Amount cannot have more than 2 decimal places",
+                exception.getMessage()
+        );
+
+        verify(recurringTransactionRepository, never()).save(any());
+    }
+
+    @Test
     void shouldRejectMissingUser() {
         CreateRecurringTransactionRequest request =
                 new CreateRecurringTransactionRequest(
@@ -336,6 +373,50 @@ class RecurringTransactionServiceTest {
         );
 
         verify(recurringTransactionRepository).save(recurringTransaction);
+    }
+
+    @Test
+    void shouldRejectAmountWithMoreThanTwoDecimalPlacesOnUpdate() {
+        RecurringTransaction recurringTransaction =
+                createRecurringTransaction();
+
+        UpdateRecurringTransactionRequest request =
+                new UpdateRecurringTransactionRequest(
+                        accountId,
+                        categoryId,
+                        TransactionType.EXPENSE,
+                        new BigDecimal("699.123"),
+                        "Netflix Premium",
+                        RecurringFrequencyUnit.MONTH,
+                        1,
+                        LocalDate.of(2026, 11, 1)
+                );
+
+        when(recurringTransactionRepository
+                .findByIdAndUser_Id(recurringTransactionId, userId))
+                .thenReturn(Optional.of(recurringTransaction));
+
+        when(accountRepository.findById(accountId))
+                .thenReturn(Optional.of(account));
+
+        when(categoryRepository.findById(categoryId))
+                .thenReturn(Optional.of(category));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> recurringTransactionService.updateRecurringTransaction(
+                        userId,
+                        recurringTransactionId,
+                        request
+                )
+        );
+
+        assertEquals(
+                "Amount cannot have more than 2 decimal places",
+                exception.getMessage()
+        );
+
+        verify(recurringTransactionRepository, never()).save(any());
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.kartik.finance_tracker.transactions;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -268,14 +269,14 @@ public class TransactionControllerTest {
     void createTransaction_shouldReturnBadRequestWhenAmountHasTooManyDecimalPlaces()
             throws Exception {
 
-        // The API allows at most four decimal places for transaction amounts.
+        // Transaction amounts are limited to two decimal places.
         mockMvc.perform(post("/api/transactions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
                             "accountId": "%s",
                             "type": "EXPENSE",
-                            "amount": 100.12345,
+                            "amount": 100.123,
                             "occurredAt": "2026-09-13T10:00:00+05:30"
                         }
                         """.formatted(UUID.randomUUID())))
@@ -324,6 +325,65 @@ public class TransactionControllerTest {
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(transactionService);
+    }
+
+    @Test
+    void voidTransaction_shouldReturnVoidedTransaction() throws Exception {
+        UUID userId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
+
+        User user = new User(
+                "kartik@example.com",
+                "hashed-password",
+                "Kartik"
+        );
+
+        Account account = new Account(
+                user,
+                "HDFC Savings",
+                AccountType.BANK,
+                "INR",
+                BigDecimal.ZERO
+        );
+
+        Category category = new Category(
+                user,
+                "Food",
+                CategoryType.EXPENSE,
+                null,
+                true
+        );
+
+        Transaction transaction = new Transaction(
+                user,
+                account,
+                null,
+                category,
+                TransactionType.EXPENSE,
+                new BigDecimal("850.00"),
+                "Groceries",
+                OffsetDateTime.parse("2026-09-13T10:00:00+05:30")
+        );
+
+        // The service is responsible for changing the status to VOIDED.
+        transaction.setStatus(TransactionStatus.VOIDED);
+
+        UUID transactionId = transaction.getId();
+
+        when(transactionService.voidTransaction(userId, transactionId))
+                .thenReturn(transaction);
+
+        mockMvc.perform(post("/api/transactions/{transactionId}/void", transactionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id")
+                        .value(transaction.getId().toString()))
+                .andExpect(jsonPath("$.type").value("EXPENSE"))
+                .andExpect(jsonPath("$.amount").value(850.00))
+                .andExpect(jsonPath("$.status").value("VOIDED"));
+
+        verify(transactionService).voidTransaction(userId, transactionId);
     }
 
     @Test

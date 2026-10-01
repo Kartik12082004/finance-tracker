@@ -48,7 +48,7 @@ public class RecurringTransaction {
     @Column(nullable = false, length = 20)
     private TransactionType type;
 
-    @Column(nullable = false, precision = 19, scale = 4)
+    @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 
     @Column(length = 255)
@@ -65,13 +65,12 @@ public class RecurringTransaction {
     private LocalDate nextOccurrence;
 
     /*
-     * Preserve the original calendar date so monthly and yearly
-     * occurrences do not permanently drift after a short month
-     * or a non-leap year.
+     * Preserves the original calendar day for monthly/yearly
+     * recurring transactions.
+     *
+     * Example:
+     * January 31 -> February 28 -> March 31
      */
-    @Column(name = "anchor_month", nullable = false)
-    private int anchorMonth;
-
     @Column(name = "anchor_day", nullable = false)
     private int anchorDay;
 
@@ -109,11 +108,7 @@ public class RecurringTransaction {
         this.frequencyUnit = frequencyUnit;
         this.frequencyInterval = frequencyInterval;
         this.nextOccurrence = nextOccurrence;
-
-        // Keep the original month/day as the recurrence anchor.
-        this.anchorMonth = nextOccurrence.getMonthValue();
         this.anchorDay = nextOccurrence.getDayOfMonth();
-
         this.pausedUntil = null;
         this.active = true;
         this.createdAt = OffsetDateTime.now(ZoneOffset.UTC);
@@ -160,6 +155,10 @@ public class RecurringTransaction {
         return nextOccurrence;
     }
 
+    public int getAnchorDay() {
+        return anchorDay;
+    }
+
     public LocalDate getPausedUntil() {
         return pausedUntil;
     }
@@ -180,8 +179,7 @@ public class RecurringTransaction {
      * Updates the recurring rule for future generated transactions.
      * Existing transactions remain unchanged.
      *
-     * Changing the schedule also establishes a new calendar anchor
-     * based on the supplied next occurrence.
+     * A new next occurrence establishes a new calendar anchor.
      */
     public void update(
             Account account,
@@ -201,19 +199,13 @@ public class RecurringTransaction {
         this.frequencyUnit = frequencyUnit;
         this.frequencyInterval = frequencyInterval;
         this.nextOccurrence = nextOccurrence;
-
-        this.anchorMonth = nextOccurrence.getMonthValue();
         this.anchorDay = nextOccurrence.getDayOfMonth();
-
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
     /*
      * Pausing moves the next occurrence to the resume date.
      * Missed occurrences during the pause are not generated later.
-     *
-     * The original calendar anchor is intentionally preserved so
-     * monthly/yearly schedules resume on their configured calendar day.
      */
     public void pause(LocalDate pausedUntil) {
         this.pausedUntil = pausedUntil;
@@ -243,14 +235,10 @@ public class RecurringTransaction {
 
     public void advanceNextOccurrence() {
         this.nextOccurrence = switch (frequencyUnit) {
-            case WEEK -> nextOccurrence.plusWeeks(frequencyInterval);
+            case WEEK ->
+                    nextOccurrence.plusWeeks(frequencyInterval);
 
             case MONTH -> {
-                /*
-                 * Calculate the target month first, then restore the
-                 * original day where possible. Short months are clamped
-                 * only for that occurrence and do not change the anchor.
-                 */
                 YearMonth targetMonth =
                         YearMonth.from(nextOccurrence)
                                 .plusMonths(frequencyInterval);
@@ -264,15 +252,9 @@ public class RecurringTransaction {
             }
 
             case YEAR -> {
-                /*
-                 * Preserve both the original month and day so leap-day
-                 * schedules do not permanently drift to February 28.
-                 */
-                int targetYear =
-                        nextOccurrence.getYear() + frequencyInterval;
-
                 YearMonth targetMonth =
-                        YearMonth.of(targetYear, anchorMonth);
+                        YearMonth.from(nextOccurrence)
+                                .plusYears(frequencyInterval);
 
                 int day = Math.min(
                         anchorDay,

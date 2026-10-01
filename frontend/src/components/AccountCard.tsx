@@ -3,185 +3,128 @@ import type { AccountType } from "../types/account";
 
 type AccountCardProps = {
   name: string;
-  type: string;
+  type: AccountType;
   currency: string;
   openingBalance: number;
+  currentBalance: number;
   onRemove: () => Promise<void>;
-  onUpdate: (
-    name: string,
-    type: AccountType,
-    currency: string,
-  ) => Promise<void>;
+  onUpdate: (name: string, type: AccountType) => Promise<void>;
 };
 
-function AccountCard({
+export default function AccountCard({
   name,
   type,
   currency,
-  openingBalance,
+  currentBalance,
   onRemove,
   onUpdate,
 }: AccountCardProps) {
-  const [isDeleting, setIsDeleting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [editedName, setEditedName] = useState(name);
+  const [editedType, setEditedType] = useState<AccountType>(type);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const [editName, setEditName] = useState(name);
-  const [editType, setEditType] = useState<AccountType>(type as AccountType);
-  const [editCurrency, setEditCurrency] = useState(currency);
-
-  const [error, setError] = useState("");
-
   async function handleDelete() {
-    setError("");
-    setIsDeleting(true);
+    if (!window.confirm(`Delete account "${name}"?`)) {
+      return;
+    }
 
     try {
+      setIsDeleting(true);
       await onRemove();
-    } catch {
-      setError(
-        "Account could not be deleted. It may contain financial transactions.",
-      );
     } finally {
       setIsDeleting(false);
     }
   }
 
-  function handleEdit() {
-    setError("");
-
-    // Start editing with the account's current values.
-    setEditName(name);
-    setEditType(type as AccountType);
-    setEditCurrency(currency);
-
-    setIsEditing(true);
-  }
-
-  function handleCancelEdit() {
-    setError("");
-
-    // Restore the original values when cancelling.
-    setEditName(name);
-    setEditType(type as AccountType);
-    setEditCurrency(currency);
-
-    setIsEditing(false);
-  }
-
   async function handleUpdate() {
-    setError("");
+    const trimmedName = editedName.trim();
 
-    if (editName.trim() === "") {
-      setError("Account name is required.");
+    if (!trimmedName) {
       return;
     }
-
-    if (editCurrency.trim().length !== 3) {
-      setError("Currency must be a 3-letter code.");
-      return;
-    }
-
-    setIsUpdating(true);
 
     try {
-      await onUpdate(
-        editName.trim(),
-        editType,
-        editCurrency.trim().toUpperCase(),
-      );
-
+      setIsUpdating(true);
+      await onUpdate(trimmedName, editedType);
       setIsEditing(false);
-    } catch {
-      setError("Failed to update account.");
     } finally {
       setIsUpdating(false);
     }
   }
 
-  if (isEditing) {
-    return (
-      <div>
-        <h2>Edit Account</h2>
-
-        <label>
-          Account name:
-          <input
-            type="text"
-            value={editName}
-            onChange={(event) => setEditName(event.target.value)}
-          />
-        </label>
-
-        <br />
-
-        <label>
-          Account type:
-          <select
-            value={editType}
-            onChange={(event) => setEditType(event.target.value as AccountType)}
-          >
-            <option value="BANK">Bank</option>
-            <option value="CASH">Cash</option>
-            <option value="CREDIT_CARD">Credit Card</option>
-            <option value="INVESTMENT">Investment</option>
-          </select>
-        </label>
-
-        <br />
-
-        <label>
-          Currency:
-          <input
-            type="text"
-            maxLength={3}
-            value={editCurrency}
-            onChange={(event) => setEditCurrency(event.target.value)}
-          />
-        </label>
-
-        <br />
-
-        <p>
-          Opening balance: {currency} {openingBalance}
-        </p>
-
-        <p>Opening balance cannot be changed when editing an account.</p>
-
-        {error && <p>{error}</p>}
-
-        <button type="button" onClick={handleUpdate} disabled={isUpdating}>
-          {isUpdating ? "Saving..." : "Save"}
-        </button>
-
-        <button type="button" onClick={handleCancelEdit} disabled={isUpdating}>
-          Cancel
-        </button>
-      </div>
-    );
+  function handleCancelEdit() {
+    setEditedName(name);
+    setEditedType(type);
+    setIsEditing(false);
   }
 
   return (
     <div>
-      <h2>{name}</h2>
+      {isEditing ? (
+        <div>
+          <div>
+            <label>
+              Name
+              <input
+                value={editedName}
+                onChange={(event) => setEditedName(event.target.value)}
+                disabled={isUpdating}
+              />
+            </label>
+          </div>
 
-      <p>Type: {type}</p>
+          <div>
+            <label>
+              Type
+              <select
+                value={editedType}
+                onChange={(event) =>
+                  setEditedType(event.target.value as AccountType)
+                }
+                disabled={isUpdating}
+              >
+                <option value="BANK">Bank</option>
+                <option value="CASH">Cash</option>
+                <option value="CREDIT_CARD">Credit Card</option>
+                <option value="INVESTMENT">Investment</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </label>
+          </div>
 
-      <p>
-        Opening balance: {currency} {openingBalance}
-      </p>
+          <p>
+            Current balance: {currency} {currentBalance}
+          </p>
 
-      {error && <p>{error}</p>}
+          <button onClick={handleUpdate} disabled={isUpdating}>
+            {isUpdating ? "Saving..." : "Save"}
+          </button>
 
-      <button type="button" onClick={handleEdit} disabled={isDeleting}>
-        Edit
-      </button>
+          <button onClick={handleCancelEdit} disabled={isUpdating}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div>
+          <h3>{name}</h3>
 
-      <button type="button" onClick={handleDelete} disabled={isDeleting}>
-        {isDeleting ? "Deleting..." : "Delete"}
-      </button>
+          <p>Type: {type}</p>
+
+          <p>
+            Current balance: {currency} {currentBalance}
+          </p>
+
+          <button onClick={() => setIsEditing(true)} disabled={isDeleting}>
+            Edit
+          </button>
+
+          <button onClick={handleDelete} disabled={isDeleting}>
+            {isDeleting ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
-
-export default AccountCard;

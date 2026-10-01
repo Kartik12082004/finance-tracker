@@ -23,6 +23,7 @@ import com.kartik.finance_tracker.auth.dto.RegisterRequest;
 import com.kartik.finance_tracker.auth.jwt.JwtService;
 import com.kartik.finance_tracker.auth.refresh.RefreshTokenRotation;
 import com.kartik.finance_tracker.auth.refresh.RefreshTokenService;
+import com.kartik.finance_tracker.categories.CategoryService;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
@@ -41,6 +42,9 @@ class AuthServiceTest {
     @Mock
     private RefreshTokenService refreshTokenService;
 
+    @Mock
+    private CategoryService categoryService;
+
     private AuthService authService;
 
     @BeforeEach
@@ -49,7 +53,8 @@ class AuthServiceTest {
                 userRepository,
                 passwordEncoder,
                 jwtService,
-                refreshTokenService
+                refreshTokenService,
+                categoryService
         );
     }
 
@@ -106,6 +111,9 @@ class AuthServiceTest {
         // Registration must persist the newly created user.
         verify(userRepository).save(any(User.class));
 
+        // Every newly registered user must receive the default categories.
+        verify(categoryService).createDefaultCategories(savedUser);
+
         // A successful registration should issue an access token.
         verify(jwtService).generateAccessToken(userId);
 
@@ -138,6 +146,9 @@ class AuthServiceTest {
         // No password should be hashed or user persisted when the email already exists.
         verify(passwordEncoder, never()).encode(any());
         verify(userRepository, never()).save(any(User.class));
+
+        // Default categories must not be created for a rejected registration.
+        verify(categoryService, never()).createDefaultCategories(any());
 
         // Failed registration must not issue either type of token.
         verify(jwtService, never()).generateAccessToken(any());

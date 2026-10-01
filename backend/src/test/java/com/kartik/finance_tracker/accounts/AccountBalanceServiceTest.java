@@ -19,6 +19,7 @@ import com.kartik.finance_tracker.investments.InvestmentTransactionType;
 import com.kartik.finance_tracker.investments.InvestmentType;
 import com.kartik.finance_tracker.transactions.Transaction;
 import com.kartik.finance_tracker.transactions.TransactionRepository;
+import com.kartik.finance_tracker.transactions.TransactionStatus;
 import com.kartik.finance_tracker.transactions.TransactionType;
 import com.kartik.finance_tracker.users.User;
 
@@ -240,6 +241,101 @@ class AccountBalanceServiceTest {
 
         // A refund reduces the amount owed and can create a card credit.
         assertThat(balance).isEqualByComparingTo("-1000.00");
+    }
+
+    @Test
+    void calculateBalance_shouldIgnoreVoidedExpense() {
+
+        Account account = account(
+                AccountType.BANK,
+                new BigDecimal("10000.00")
+        );
+
+        Transaction expense = transaction(
+                account,
+                null,
+                TransactionType.EXPENSE,
+                new BigDecimal("2000.00")
+        );
+
+        // The transaction remains in history, but its financial effect is cancelled.
+        expense.setStatus(TransactionStatus.VOIDED);
+
+        mockAccount(account);
+        mockTransactions(account, expense);
+
+        BigDecimal balance =
+                accountBalanceService.calculateBalance(account.getId());
+
+        // The voided expense must not reduce the account balance.
+        assertThat(balance).isEqualByComparingTo("10000.00");
+    }
+
+    @Test
+    void calculateBalance_shouldIgnoreVoidedIncome() {
+
+        Account account = account(
+                AccountType.BANK,
+                new BigDecimal("10000.00")
+        );
+
+        Transaction income = transaction(
+                account,
+                null,
+                TransactionType.INCOME,
+                new BigDecimal("5000.00")
+        );
+
+        // A voided income must no longer increase the balance.
+        income.setStatus(TransactionStatus.VOIDED);
+
+        mockAccount(account);
+        mockTransactions(account, income);
+
+        BigDecimal balance =
+                accountBalanceService.calculateBalance(account.getId());
+
+        // The voided income has no financial effect.
+        assertThat(balance).isEqualByComparingTo("10000.00");
+    }
+
+    @Test
+    void calculateBalance_shouldIgnoreVoidedTransfer() {
+
+        Account source = account(
+                AccountType.BANK,
+                new BigDecimal("10000.00")
+        );
+
+        Account destination = account(
+                AccountType.BANK,
+                new BigDecimal("5000.00")
+        );
+
+        Transaction transfer = transaction(
+                source,
+                destination,
+                TransactionType.TRANSFER,
+                new BigDecimal("3000.00")
+        );
+
+        // The transfer exists for history but must not move money after being voided.
+        transfer.setStatus(TransactionStatus.VOIDED);
+
+        mockAccount(source);
+
+        when(transactionRepository
+                .findAllByAccount_IdOrDestinationAccount_Id(
+                        source.getId(),
+                        source.getId()
+                ))
+                .thenReturn(List.of(transfer));
+
+        BigDecimal balance =
+                accountBalanceService.calculateBalance(source.getId());
+
+        // The voided transfer must have zero effect on the source account.
+        assertThat(balance).isEqualByComparingTo("10000.00");
     }
 
     @Test

@@ -57,6 +57,12 @@ public class BudgetService {
             );
         }
 
+        if (request.amount().scale() > 2) {
+            throw new IllegalArgumentException(
+                    "Amount cannot have more than 2 decimal places"
+            );
+        }
+
         validateDateRange(request.startDate(), request.endDate());
 
         /*

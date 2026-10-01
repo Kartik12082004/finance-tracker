@@ -41,10 +41,10 @@ public class Goal {
     @Column(nullable = false, length = 255)
     private String name;
 
-    @Column(name = "target_amount", nullable = false, precision = 19, scale = 4)
+    @Column(name = "target_amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal targetAmount;
 
-    @Column(name = "current_amount", nullable = false, precision = 19, scale = 4)
+    @Column(name = "current_amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal currentAmount;
 
     @Column(name = "target_date", nullable = false)

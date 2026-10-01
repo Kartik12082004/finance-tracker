@@ -24,11 +24,21 @@ public record CreateTransactionRequest(
         TransactionType type,
 
         @NotNull(message = "Transaction amount is required")
-        @DecimalMin(value = "0.0001", message = "Transaction amount must be greater than zero")
-        @Digits(integer = 15, fraction = 4, message = "Transaction amount must have at most 4 decimal places")
+        @DecimalMin(
+                value = "0.0001",
+                message = "Transaction amount must be greater than zero"
+        )
+        @Digits(
+                integer = 15,
+                fraction = 2,
+                message = "Transaction amount must have at most 2 decimal places"
+        )
         BigDecimal amount,
 
-        @Size(max = 255, message = "Description must not exceed 255 characters")
+        @Size(
+                max = 255,
+                message = "Description must not exceed 255 characters"
+        )
         String description,
 
         @NotNull(message = "Transaction date is required")

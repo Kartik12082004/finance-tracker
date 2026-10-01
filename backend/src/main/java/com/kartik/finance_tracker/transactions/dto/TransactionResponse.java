@@ -4,18 +4,33 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
+import com.kartik.finance_tracker.transactions.TransactionStatus;
 import com.kartik.finance_tracker.transactions.TransactionType;
 
 public record TransactionResponse(
+
         UUID id,
+
         UUID accountId,
+
         UUID destinationAccountId,
+
         UUID categoryId,
+
         TransactionType type,
+
+        TransactionStatus status,
+
         BigDecimal amount,
+
         String description,
+
         OffsetDateTime occurredAt,
+
         OffsetDateTime createdAt,
+
         OffsetDateTime updatedAt
+
 ) {
+
 }

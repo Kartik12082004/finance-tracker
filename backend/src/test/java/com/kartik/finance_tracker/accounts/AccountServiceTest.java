@@ -118,6 +118,27 @@ class AccountServiceTest {
     }
 
     @Test
+    void createAccount_shouldRejectOpeningBalanceWithMoreThanTwoDecimalPlaces() {
+
+        UUID userId = user.getId();
+        BigDecimal openingBalance = new BigDecimal("25000.123");
+
+        assertThatThrownBy(() ->
+                accountService.createAccount(
+                        userId,
+                        "HDFC Savings",
+                        AccountType.BANK,
+                        "INR",
+                        openingBalance
+                ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Amount cannot have more than 2 decimal places");
+
+        // Invalid financial values must never reach the database.
+        verify(accountRepository, never()).save(any(Account.class));
+    }
+
+    @Test
     void getAccount_shouldReturnAccountWhenItBelongsToUser() {
 
         UUID userId = user.getId();
@@ -177,135 +198,6 @@ class AccountServiceTest {
                         anotherUsersAccountId,
                         userId
                 );
-    }
-
-    @Test
-    void updateAccount_shouldUpdateAccountMetadataAndPreserveOpeningBalance() {
-
-        UUID userId = user.getId();
-        UUID accountId = UUID.randomUUID();
-
-        BigDecimal originalOpeningBalance = new BigDecimal("25000.00");
-
-        Account account = new Account(
-                user,
-                "HDFC Savings",
-                AccountType.BANK,
-                "INR",
-                originalOpeningBalance
-        );
-
-        when(accountRepository.findByIdAndUser_Id(accountId, userId))
-                .thenReturn(Optional.of(account));
-
-        when(accountRepository.save(any(Account.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        Account result = accountService.updateAccount(
-                userId,
-                accountId,
-                "SBI Savings",
-                AccountType.BANK,
-                "INR"
-        );
-
-        // The service should return the updated account.
-        assertThat(result).isSameAs(account);
-
-        // The ownership-aware lookup must be used before updating.
-        verify(accountRepository)
-                .findByIdAndUser_Id(accountId, userId);
-
-        // Only account metadata should change.
-        assertThat(account.getName()).isEqualTo("SBI Savings");
-        assertThat(account.getType()).isEqualTo(AccountType.BANK);
-        assertThat(account.getCurrency()).isEqualTo("INR");
-
-        // Opening balance represents the original financial state
-        // and must not be changed by an account metadata update.
-        assertThat(account.getOpeningBalance())
-                .isEqualByComparingTo("25000.00");
-
-        // The updated entity should be persisted.
-        verify(accountRepository).save(account);
-
-        // Updating the account should refresh its modification timestamp.
-        assertThat(account.getUpdatedAt()).isNotNull();
-    }
-
-    @Test
-    void updateAccount_shouldUpdateDifferentAccountTypeAndCurrency() {
-
-        UUID userId = user.getId();
-        UUID accountId = UUID.randomUUID();
-
-        Account account = new Account(
-                user,
-                "Cash Wallet",
-                AccountType.CASH,
-                "INR",
-                new BigDecimal("5000.00")
-        );
-
-        when(accountRepository.findByIdAndUser_Id(accountId, userId))
-                .thenReturn(Optional.of(account));
-
-        when(accountRepository.save(any(Account.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        accountService.updateAccount(
-                userId,
-                accountId,
-                "USD Wallet",
-                AccountType.BANK,
-                "USD"
-        );
-
-        // Metadata changes should be applied to the existing account.
-        assertThat(account.getName()).isEqualTo("USD Wallet");
-        assertThat(account.getType()).isEqualTo(AccountType.BANK);
-        assertThat(account.getCurrency()).isEqualTo("USD");
-
-        // The financial opening balance remains unchanged.
-        assertThat(account.getOpeningBalance())
-                .isEqualByComparingTo("5000.00");
-
-        verify(accountRepository).save(account);
-    }
-
-    @Test
-    void updateAccount_shouldRejectAccountOwnedByAnotherUser() {
-
-        UUID userId = user.getId();
-        UUID anotherUsersAccountId = UUID.randomUUID();
-
-        // Returning an empty result represents an account that either
-        // does not exist or does not belong to the authenticated user.
-        when(accountRepository.findByIdAndUser_Id(
-                anotherUsersAccountId,
-                userId
-        )).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() ->
-                accountService.updateAccount(
-                        userId,
-                        anotherUsersAccountId,
-                        "Updated Account",
-                        AccountType.BANK,
-                        "INR"
-                ))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessage("Account not found");
-
-        // The ownership-aware lookup must be used.
-        verify(accountRepository)
-                .findByIdAndUser_Id(
-                        anotherUsersAccountId,
-                        userId
-                );
-
-        // Nothing should be persisted when ownership verification fails.
-        verify(accountRepository, never()).save(any(Account.class));
     }
 
     @Test

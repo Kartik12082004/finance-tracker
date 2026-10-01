@@ -35,6 +35,12 @@ public class GoalService {
     ) {
         User user = getUser(userId);
 
+        if (request.targetAmount().scale() > 2) {
+            throw new IllegalArgumentException(
+                    "Amount cannot have more than 2 decimal places"
+            );
+        }
+
         Goal goal = new Goal(
                 user,
                 request.name(),
@@ -70,6 +76,12 @@ public class GoalService {
             );
         }
 
+        if (request.targetAmount().scale() > 2) {
+            throw new IllegalArgumentException(
+                    "Amount cannot have more than 2 decimal places"
+            );
+        }
+
         if (request.targetAmount().compareTo(goal.getCurrentAmount()) < 0) {
             throw new IllegalArgumentException(
                     "Target amount cannot be less than current amount"
@@ -102,6 +114,12 @@ public class GoalService {
         if (contribution == null || contribution.signum() <= 0) {
             throw new IllegalArgumentException(
                     "Contribution must be greater than zero"
+            );
+        }
+
+        if (contribution.scale() > 2) {
+            throw new IllegalArgumentException(
+                    "Amount cannot have more than 2 decimal places"
             );
         }
 
