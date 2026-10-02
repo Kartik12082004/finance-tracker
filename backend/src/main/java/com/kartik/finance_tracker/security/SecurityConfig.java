@@ -6,6 +6,7 @@ import java.util.List;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
@@ -34,10 +35,14 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
 
                 .cors(cors -> {})
-                
-                // Authentication endpoints and OAuth2 login flow must remain public.
-                // All other application endpoints require authentication.
+
+                // Authentication endpoints, OAuth2 login flow, and CORS
+                // preflight requests must remain public.
                 .authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers(
+                                HttpMethod.OPTIONS,
+                                "/**"
+                        ).permitAll()
                         .requestMatchers(
                                 "/api/auth/**",
                                 "/oauth2/**",
@@ -69,11 +74,21 @@ public class SecurityConfig {
         );
 
         configuration.setAllowedMethods(
-                List.of("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                List.of(
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "PATCH",
+                        "DELETE",
+                        "OPTIONS"
+                )
         );
 
         configuration.setAllowedHeaders(
-                List.of("Authorization", "Content-Type")
+                List.of(
+                        "Authorization",
+                        "Content-Type"
+                )
         );
 
         UrlBasedCorsConfigurationSource source =
@@ -83,5 +98,4 @@ public class SecurityConfig {
 
         return source;
     }
-
 }

@@ -5,6 +5,8 @@ import {
   saveAuthSession,
 } from "../auth/authStorage";
 
+let refreshPromise: Promise<string | null> | null = null;
+
 async function sendRequest(
   url: string,
   options: RequestInit,
@@ -14,10 +16,44 @@ async function sendRequest(
 
   headers.set("Authorization", `Bearer ${accessToken}`);
 
+  if (options.body !== undefined && options.body !== null) {
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+  }
+
   return fetch(url, {
     ...options,
     headers,
   });
+}
+
+async function refreshAccessToken(
+  refreshTokenValue: string,
+): Promise<string | null> {
+  if (refreshPromise !== null) {
+    return refreshPromise;
+  }
+
+  refreshPromise = (async () => {
+    try {
+      const refreshedSession = await refreshToken({
+        refreshToken: refreshTokenValue,
+      });
+
+      saveAuthSession(refreshedSession);
+
+      return refreshedSession.accessToken;
+    } catch {
+      clearAuthSession();
+
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 export async function apiRequest<T>(
@@ -45,25 +81,16 @@ export async function apiRequest<T>(
   }
 
   // The access token is no longer accepted.
-  // Try to rotate it using the stored refresh token.
-  try {
-    const refreshedSession = await refreshToken({
-      refreshToken: authSession.refreshToken,
-    });
+  // Only one refresh request is allowed at a time.
+  // Any other requests that receive 401 will wait for the same refresh.
+  const newAccessToken = await refreshAccessToken(authSession.refreshToken);
 
-    // The backend rotates the refresh token, so replace the entire
-    // authentication session rather than keeping the old token.
-    saveAuthSession(refreshedSession);
-
-    // Retry the original request exactly once with the new access token.
-    response = await sendRequest(url, options, refreshedSession.accessToken);
-  } catch {
-    // The refresh token is invalid, expired, or otherwise unusable.
-    // Remove the local session so stale credentials are not retained.
-    clearAuthSession();
-
+  if (newAccessToken === null) {
     throw new Error("Authentication session expired.");
   }
+
+  // Retry the original request exactly once with the new access token.
+  response = await sendRequest(url, options, newAccessToken);
 
   if (!response.ok) {
     throw new Error("API request failed.");

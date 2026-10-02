@@ -25,6 +25,7 @@ import {
   getAuthSession,
   saveAuthSession,
 } from "./auth/authStorage";
+import Goals from "./components/Goals";
 
 function App() {
   // Restore the previous authentication session when the application starts.
@@ -228,6 +229,8 @@ function App() {
       </button>
 
       <Dashboard refreshKey={dashboardRefreshKey} />
+
+      <Goals />
 
       <AddAccountForm onAddAccount={addAccount} />
 
