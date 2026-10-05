@@ -122,14 +122,17 @@ class RecurringTransactionServiceTest {
         assertEquals(TransactionType.EXPENSE, response.type());
         assertEquals(new BigDecimal("649.00"), response.amount());
         assertEquals("Netflix", response.description());
-        assertEquals(RecurringFrequencyUnit.MONTH, response.frequencyUnit());
+        assertEquals(
+                RecurringFrequencyUnit.MONTH,
+                response.frequencyUnit()
+        );
         assertEquals(1, response.frequencyInterval());
         assertEquals(
                 LocalDate.of(2026, 10, 1),
                 response.nextOccurrence()
         );
         assertTrue(response.active());
-        assertTrue(response.pausedUntil() == null);
+        assertEquals(null, response.pausedUntil());
 
         verify(recurringTransactionRepository).save(any());
     }
@@ -420,11 +423,13 @@ class RecurringTransactionServiceTest {
     }
 
     @Test
-    void shouldPauseRecurringTransaction() {
+    void shouldPauseWeeklyRecurringTransactionUsingDuration() {
         RecurringTransaction recurringTransaction =
-                createRecurringTransaction();
-
-        LocalDate pausedUntil = LocalDate.now().plusMonths(2);
+                createRecurringTransaction(
+                        RecurringFrequencyUnit.WEEK,
+                        1,
+                        LocalDate.of(2026, 10, 1)
+                );
 
         when(recurringTransactionRepository
                 .findByIdAndUser_Id(recurringTransactionId, userId))
@@ -437,18 +442,143 @@ class RecurringTransactionServiceTest {
                 recurringTransactionService.pauseRecurringTransaction(
                         userId,
                         recurringTransactionId,
-                        pausedUntil
+                        2,
+                        false
                 );
 
-        assertEquals(pausedUntil, response.pausedUntil());
-        assertEquals(pausedUntil, response.nextOccurrence());
+        assertEquals(
+                LocalDate.of(2026, 10, 15),
+                response.pausedUntil()
+        );
+        assertEquals(
+                LocalDate.of(2026, 10, 15),
+                response.nextOccurrence()
+        );
         assertTrue(response.active());
 
-        verify(recurringTransactionRepository).save(recurringTransaction);
+        verify(recurringTransactionRepository)
+                .save(recurringTransaction);
     }
 
     @Test
-    void shouldRejectPauseDateInPast() {
+    void shouldPauseMonthlyRecurringTransactionUsingDuration() {
+        RecurringTransaction recurringTransaction =
+                createRecurringTransaction(
+                        RecurringFrequencyUnit.MONTH,
+                        1,
+                        LocalDate.of(2026, 10, 1)
+                );
+
+        when(recurringTransactionRepository
+                .findByIdAndUser_Id(recurringTransactionId, userId))
+                .thenReturn(Optional.of(recurringTransaction));
+
+        when(recurringTransactionRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        RecurringTransactionResponse response =
+                recurringTransactionService.pauseRecurringTransaction(
+                        userId,
+                        recurringTransactionId,
+                        2,
+                        false
+                );
+
+        assertEquals(
+                LocalDate.of(2026, 12, 1),
+                response.pausedUntil()
+        );
+        assertEquals(
+                LocalDate.of(2026, 12, 1),
+                response.nextOccurrence()
+        );
+        assertTrue(response.active());
+
+        verify(recurringTransactionRepository)
+                .save(recurringTransaction);
+    }
+
+    @Test
+    void shouldPauseYearlyRecurringTransactionUsingDuration() {
+        RecurringTransaction recurringTransaction =
+                createRecurringTransaction(
+                        RecurringFrequencyUnit.YEAR,
+                        1,
+                        LocalDate.of(2026, 10, 1)
+                );
+
+        when(recurringTransactionRepository
+                .findByIdAndUser_Id(recurringTransactionId, userId))
+                .thenReturn(Optional.of(recurringTransaction));
+
+        when(recurringTransactionRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        RecurringTransactionResponse response =
+                recurringTransactionService.pauseRecurringTransaction(
+                        userId,
+                        recurringTransactionId,
+                        2,
+                        false
+                );
+
+        assertEquals(
+                LocalDate.of(2028, 10, 1),
+                response.pausedUntil()
+        );
+        assertEquals(
+                LocalDate.of(2028, 10, 1),
+                response.nextOccurrence()
+        );
+        assertTrue(response.active());
+
+        verify(recurringTransactionRepository)
+                .save(recurringTransaction);
+    }
+
+    @Test
+    void shouldPreserveMonthlyAnchorWhenPausing() {
+        RecurringTransaction recurringTransaction =
+                createRecurringTransaction(
+                        RecurringFrequencyUnit.MONTH,
+                        1,
+                        LocalDate.of(2026, 1, 31)
+                );
+
+        when(recurringTransactionRepository
+                .findByIdAndUser_Id(recurringTransactionId, userId))
+                .thenReturn(Optional.of(recurringTransaction));
+
+        when(recurringTransactionRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        RecurringTransactionResponse response =
+                recurringTransactionService.pauseRecurringTransaction(
+                        userId,
+                        recurringTransactionId,
+                        1,
+                        false
+                );
+
+        /*
+         * January 31 + one month = February 28.
+         *
+         * The entity must retain anchorDay=31 so future recurrence
+         * can return to March 31.
+         */
+        assertEquals(
+                LocalDate.of(2026, 2, 28),
+                response.pausedUntil()
+        );
+        assertEquals(
+                LocalDate.of(2026, 2, 28),
+                response.nextOccurrence()
+        );
+        assertEquals(31, recurringTransaction.getAnchorDay());
+    }
+
+    @Test
+    void shouldPauseUntilManuallyResumed() {
         RecurringTransaction recurringTransaction =
                 createRecurringTransaction();
 
@@ -456,25 +586,198 @@ class RecurringTransactionServiceTest {
                 .findByIdAndUser_Id(recurringTransactionId, userId))
                 .thenReturn(Optional.of(recurringTransaction));
 
-        assertThrows(
+        when(recurringTransactionRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        RecurringTransactionResponse response =
+                recurringTransactionService.pauseRecurringTransaction(
+                        userId,
+                        recurringTransactionId,
+                        null,
+                        true
+                );
+
+        assertFalse(response.active());
+        assertEquals(null, response.pausedUntil());
+
+        /*
+         * The next occurrence is preserved so resuming later can
+         * continue from the existing schedule.
+         */
+        assertEquals(
+                LocalDate.of(2026, 10, 1),
+                response.nextOccurrence()
+        );
+
+        verify(recurringTransactionRepository)
+                .save(recurringTransaction);
+    }
+
+    @Test
+    void shouldRejectPauseWithoutDurationOrUntilResume() {
+        RecurringTransaction recurringTransaction =
+                createRecurringTransaction();
+
+        when(recurringTransactionRepository
+                .findByIdAndUser_Id(recurringTransactionId, userId))
+                .thenReturn(Optional.of(recurringTransaction));
+
+        IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
                 () -> recurringTransactionService.pauseRecurringTransaction(
                         userId,
                         recurringTransactionId,
-                        LocalDate.now().minusDays(1)
+                        null,
+                        false
                 )
         );
 
-        verify(recurringTransactionRepository, never()).save(any());
+        assertEquals(
+                "Pause duration is required",
+                exception.getMessage()
+        );
+
+        verify(recurringTransactionRepository, never())
+                .save(any());
     }
 
     @Test
-    void shouldResumeRecurringTransaction() {
+    void shouldRejectPauseWithZeroDuration() {
         RecurringTransaction recurringTransaction =
                 createRecurringTransaction();
 
-        LocalDate pausedUntil = LocalDate.now().plusMonths(2);
-        recurringTransaction.pause(pausedUntil);
+        when(recurringTransactionRepository
+                .findByIdAndUser_Id(recurringTransactionId, userId))
+                .thenReturn(Optional.of(recurringTransaction));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> recurringTransactionService.pauseRecurringTransaction(
+                        userId,
+                        recurringTransactionId,
+                        0,
+                        false
+                )
+        );
+
+        assertEquals(
+                "Pause duration must be at least 1",
+                exception.getMessage()
+        );
+
+        verify(recurringTransactionRepository, never())
+                .save(any());
+    }
+
+    @Test
+    void shouldRejectPauseWithNegativeDuration() {
+        RecurringTransaction recurringTransaction =
+                createRecurringTransaction();
+
+        when(recurringTransactionRepository
+                .findByIdAndUser_Id(recurringTransactionId, userId))
+                .thenReturn(Optional.of(recurringTransaction));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> recurringTransactionService.pauseRecurringTransaction(
+                        userId,
+                        recurringTransactionId,
+                        -2,
+                        false
+                )
+        );
+
+        assertEquals(
+                "Pause duration must be at least 1",
+                exception.getMessage()
+        );
+
+        verify(recurringTransactionRepository, never())
+                .save(any());
+    }
+
+    @Test
+    void shouldRejectPauseWhenDurationAndUntilResumeAreBothProvided() {
+        RecurringTransaction recurringTransaction =
+                createRecurringTransaction();
+
+        when(recurringTransactionRepository
+                .findByIdAndUser_Id(recurringTransactionId, userId))
+                .thenReturn(Optional.of(recurringTransaction));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> recurringTransactionService.pauseRecurringTransaction(
+                        userId,
+                        recurringTransactionId,
+                        2,
+                        true
+                )
+        );
+
+        assertEquals(
+                "Choose either a pause duration or pause until manually resumed",
+                exception.getMessage()
+        );
+
+        verify(recurringTransactionRepository, never())
+                .save(any());
+    }
+
+    @Test
+    void shouldResumeTemporarilyPausedRecurringTransaction() {
+        RecurringTransaction recurringTransaction =
+                createRecurringTransaction();
+
+        LocalDate pausedUntil =
+                LocalDate.of(2026, 12, 1);
+
+        recurringTransaction.pauseFor(2);
+
+        assertEquals(
+                pausedUntil,
+                recurringTransaction.getPausedUntil()
+        );
+
+        when(recurringTransactionRepository
+                .findByIdAndUser_Id(recurringTransactionId, userId))
+                .thenReturn(Optional.of(recurringTransaction));
+
+        when(recurringTransactionRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        RecurringTransactionResponse response =
+                recurringTransactionService.resumeRecurringTransaction(
+                        userId,
+                        recurringTransactionId
+                );
+
+        /*
+         * The paused occurrence is still in the future, so resume
+         * keeps it as the next scheduled occurrence.
+         */
+        assertTrue(response.active());
+        assertEquals(null, response.pausedUntil());
+        assertEquals(
+                pausedUntil,
+                response.nextOccurrence()
+        );
+
+        verify(recurringTransactionRepository)
+                .save(recurringTransaction);
+    }
+
+    @Test
+    void shouldResumeIndefinitelyPausedRecurringTransaction() {
+        RecurringTransaction recurringTransaction =
+                createRecurringTransaction();
+
+        /*
+         * The original occurrence is October 1, which is already
+         * in the past relative to the current test date.
+         */
+        recurringTransaction.pauseUntilResumed();
 
         when(recurringTransactionRepository
                 .findByIdAndUser_Id(recurringTransactionId, userId))
@@ -492,32 +795,17 @@ class RecurringTransactionServiceTest {
         assertTrue(response.active());
         assertEquals(null, response.pausedUntil());
 
-        verify(recurringTransactionRepository).save(recurringTransaction);
-    }
+        /*
+         * The missed October occurrence must not be replayed.
+         * The next monthly occurrence is November 1.
+         */
+        assertEquals(
+                LocalDate.of(2026, 11, 1),
+                response.nextOccurrence()
+        );
 
-    @Test
-    void shouldDeactivateRecurringTransaction() {
-        RecurringTransaction recurringTransaction =
-                createRecurringTransaction();
-
-        when(recurringTransactionRepository
-                .findByIdAndUser_Id(recurringTransactionId, userId))
-                .thenReturn(Optional.of(recurringTransaction));
-
-        when(recurringTransactionRepository.save(any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        RecurringTransactionResponse response =
-                recurringTransactionService
-                        .deactivateRecurringTransaction(
-                                userId,
-                                recurringTransactionId
-                        );
-
-        assertFalse(response.active());
-        assertEquals(null, response.pausedUntil());
-
-        verify(recurringTransactionRepository).save(recurringTransaction);
+        verify(recurringTransactionRepository)
+                .save(recurringTransaction);
     }
 
     @Test
@@ -558,6 +846,18 @@ class RecurringTransactionServiceTest {
     }
 
     private RecurringTransaction createRecurringTransaction() {
+        return createRecurringTransaction(
+                RecurringFrequencyUnit.MONTH,
+                1,
+                LocalDate.of(2026, 10, 1)
+        );
+    }
+
+    private RecurringTransaction createRecurringTransaction(
+            RecurringFrequencyUnit frequencyUnit,
+            int frequencyInterval,
+            LocalDate nextOccurrence
+    ) {
         RecurringTransaction recurringTransaction =
                 new RecurringTransaction(
                         user,
@@ -566,9 +866,9 @@ class RecurringTransactionServiceTest {
                         TransactionType.EXPENSE,
                         new BigDecimal("649.00"),
                         "Netflix",
-                        RecurringFrequencyUnit.MONTH,
-                        1,
-                        LocalDate.of(2026, 10, 1)
+                        frequencyUnit,
+                        frequencyInterval,
+                        nextOccurrence
                 );
 
         try {
@@ -576,7 +876,10 @@ class RecurringTransactionServiceTest {
                     .getDeclaredField("id");
 
             idField.setAccessible(true);
-            idField.set(recurringTransaction, recurringTransactionId);
+            idField.set(
+                    recurringTransaction,
+                    recurringTransactionId
+            );
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException(
                     "Could not assign test recurring transaction ID",

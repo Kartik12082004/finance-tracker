@@ -1,6 +1,9 @@
 package com.kartik.finance_tracker.goals;
 
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -16,8 +19,6 @@ import com.kartik.finance_tracker.goals.dto.CreateGoalRequest;
 import com.kartik.finance_tracker.goals.dto.GoalResponse;
 import com.kartik.finance_tracker.goals.dto.UpdateGoalRequest;
 import com.kartik.finance_tracker.security.CurrentUserService;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class GoalControllerTest {
 
@@ -166,16 +167,13 @@ class GoalControllerTest {
     }
 
     @Test
-    void shouldCancelGoal() {
-        when(goalService.cancelGoal(userId, goalId))
-                .thenReturn(goalResponse);
+    void shouldDeleteGoal() {
+        ResponseEntity<Void> response =
+                goalController.deleteGoal(goalId);
 
-        ResponseEntity<GoalResponse> response =
-                goalController.cancelGoal(goalId);
+        assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
+        assertEquals(null, response.getBody());
 
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(goalResponse, response.getBody());
-
-        verify(goalService).cancelGoal(userId, goalId);
+        verify(goalService).deleteGoal(userId, goalId);
     }
 }

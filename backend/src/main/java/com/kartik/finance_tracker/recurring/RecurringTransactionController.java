@@ -1,10 +1,8 @@
 package com.kartik.finance_tracker.recurring;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -44,7 +42,6 @@ public class RecurringTransactionController {
     public ResponseEntity<RecurringTransactionResponse> createRecurringTransaction(
             @Valid @RequestBody CreateRecurringTransactionRequest request
     ) {
-        // The authenticated user owns the recurring transaction.
         UUID userId = currentUserService.getCurrentUserId();
 
         RecurringTransactionResponse response =
@@ -86,9 +83,8 @@ public class RecurringTransactionController {
     @PatchMapping("/{id}/pause")
     public ResponseEntity<RecurringTransactionResponse> pauseRecurringTransaction(
             @PathVariable UUID id,
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-            LocalDate pausedUntil
+            @RequestParam(required = false) Integer duration,
+            @RequestParam(defaultValue = "false") boolean untilResume
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
@@ -96,7 +92,8 @@ public class RecurringTransactionController {
                 recurringTransactionService.pauseRecurringTransaction(
                         userId,
                         id,
-                        pausedUntil
+                        duration,
+                        untilResume
                 )
         );
     }
@@ -109,20 +106,6 @@ public class RecurringTransactionController {
 
         return ResponseEntity.ok(
                 recurringTransactionService.resumeRecurringTransaction(
-                        userId,
-                        id
-                )
-        );
-    }
-
-    @PatchMapping("/{id}/deactivate")
-    public ResponseEntity<RecurringTransactionResponse> deactivateRecurringTransaction(
-            @PathVariable UUID id
-    ) {
-        UUID userId = currentUserService.getCurrentUserId();
-
-        return ResponseEntity.ok(
-                recurringTransactionService.deactivateRecurringTransaction(
                         userId,
                         id
                 )

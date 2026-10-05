@@ -92,7 +92,6 @@ class RecurringTransactionControllerTest {
                 }
                 """.formatted(accountId, categoryId);
 
-        // The authenticated user owns the recurring transaction.
         mockMvc.perform(
                 post("/api/recurring-transactions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -117,7 +116,10 @@ class RecurringTransactionControllerTest {
                 .value(1));
 
         verify(recurringTransactionService)
-                .createRecurringTransaction(eq(userId), any());
+                .createRecurringTransaction(
+                        eq(userId),
+                        any()
+                );
     }
 
     @Test
@@ -131,7 +133,6 @@ class RecurringTransactionControllerTest {
         when(recurringTransactionService.getRecurringTransactions(userId))
                 .thenReturn(List.of(response));
 
-        // The API should return only recurring rules belonging to the user.
         mockMvc.perform(
                 get("/api/recurring-transactions")
         )
@@ -190,36 +191,83 @@ class RecurringTransactionControllerTest {
     }
 
     @Test
-    void shouldPauseRecurringTransaction() throws Exception {
+    void shouldPauseRecurringTransactionForDuration()
+            throws Exception {
+
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
         RecurringTransactionResponse response =
                 createResponseWithPause(
-                        LocalDate.of(2026, 12, 1)
+                        LocalDate.of(2026, 12, 1),
+                        true
                 );
 
         when(recurringTransactionService.pauseRecurringTransaction(
                 userId,
                 recurringTransactionId,
-                LocalDate.of(2026, 12, 1)
+                2,
+                false
         )).thenReturn(response);
 
-        // Pausing should send the requested resume date to the service.
+        /*
+         * duration=2 means two units of the recurring rule's
+         * frequency.
+         */
         mockMvc.perform(
                 patch("/api/recurring-transactions/{id}/pause",
                         recurringTransactionId)
-                        .param("pausedUntil", "2026-12-01")
+                        .param("duration", "2")
         )
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.pausedUntil")
-                .value("2026-12-01"));
+                .value("2026-12-01"))
+        .andExpect(jsonPath("$.active")
+                .value(true));
 
         verify(recurringTransactionService)
                 .pauseRecurringTransaction(
                         userId,
                         recurringTransactionId,
-                        LocalDate.of(2026, 12, 1)
+                        2,
+                        false
+                );
+    }
+
+    @Test
+    void shouldPauseRecurringTransactionUntilManualResume()
+            throws Exception {
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
+
+        RecurringTransactionResponse response =
+                createInactiveResponse();
+
+        when(recurringTransactionService.pauseRecurringTransaction(
+                userId,
+                recurringTransactionId,
+                null,
+                true
+        )).thenReturn(response);
+
+        mockMvc.perform(
+                patch("/api/recurring-transactions/{id}/pause",
+                        recurringTransactionId)
+                        .param("untilResume", "true")
+        )
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.active")
+                .value(false))
+        .andExpect(jsonPath("$.pausedUntil")
+                .isEmpty());
+
+        verify(recurringTransactionService)
+                .pauseRecurringTransaction(
+                        userId,
+                        recurringTransactionId,
+                        null,
+                        true
                 );
     }
 
@@ -244,33 +292,6 @@ class RecurringTransactionControllerTest {
 
         verify(recurringTransactionService)
                 .resumeRecurringTransaction(
-                        userId,
-                        recurringTransactionId
-                );
-    }
-
-    @Test
-    void shouldDeactivateRecurringTransaction() throws Exception {
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
-
-        RecurringTransactionResponse response =
-                createInactiveResponse();
-
-        when(recurringTransactionService.deactivateRecurringTransaction(
-                userId,
-                recurringTransactionId
-        )).thenReturn(response);
-
-        mockMvc.perform(
-                patch("/api/recurring-transactions/{id}/deactivate",
-                        recurringTransactionId)
-        )
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.active").value(false));
-
-        verify(recurringTransactionService)
-                .deactivateRecurringTransaction(
                         userId,
                         recurringTransactionId
                 );
@@ -422,7 +443,8 @@ class RecurringTransactionControllerTest {
     }
 
     private RecurringTransactionResponse createResponseWithPause(
-            LocalDate pausedUntil
+            LocalDate pausedUntil,
+            boolean active
     ) {
         return new RecurringTransactionResponse(
                 recurringTransactionId,
@@ -436,7 +458,7 @@ class RecurringTransactionControllerTest {
                 1,
                 pausedUntil,
                 pausedUntil,
-                true,
+                active,
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );

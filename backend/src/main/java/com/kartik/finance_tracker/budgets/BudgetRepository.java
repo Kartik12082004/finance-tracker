@@ -23,4 +23,18 @@ public interface BudgetRepository extends JpaRepository<Budget, UUID> {
             LocalDate startDate,
             LocalDate endDate
     );
+
+    boolean existsByUser_IdAndCategory_IdAndPeriodAndStartDateAndEndDateAndIdNot(
+            UUID userId,
+            UUID categoryId,
+            BudgetPeriod period,
+            LocalDate startDate,
+            LocalDate endDate,
+            UUID budgetId
+    );
+
+    java.util.Optional<Budget> findByIdAndUser_Id(
+            UUID budgetId,
+            UUID userId
+    );
 }

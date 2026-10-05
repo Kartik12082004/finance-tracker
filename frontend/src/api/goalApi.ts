@@ -46,8 +46,8 @@ export async function resumeGoal(goalId: string): Promise<Goal> {
   });
 }
 
-export async function cancelGoal(goalId: string): Promise<Goal> {
-  return apiRequest<Goal>(`http://localhost:8080/api/goals/${goalId}/cancel`, {
-    method: "PATCH",
+export async function deleteGoal(goalId: string): Promise<void> {
+  await apiRequest<void>(`http://localhost:8080/api/goals/${goalId}`, {
+    method: "DELETE",
   });
 }

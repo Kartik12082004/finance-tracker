@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -42,7 +43,6 @@ public class GoalController {
     public ResponseEntity<GoalResponse> createGoal(
             @Valid @RequestBody CreateGoalRequest request
     ) {
-        // The authenticated user owns the goal.
         UUID userId = currentUserService.getCurrentUserId();
 
         GoalResponse response = goalService.createGoal(
@@ -118,14 +118,14 @@ public class GoalController {
         );
     }
 
-    @PatchMapping("/{id}/cancel")
-    public ResponseEntity<GoalResponse> cancelGoal(
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteGoal(
             @PathVariable UUID id
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
-        return ResponseEntity.ok(
-                goalService.cancelGoal(userId, id)
-        );
+        goalService.deleteGoal(userId, id);
+
+        return ResponseEntity.noContent().build();
     }
 }

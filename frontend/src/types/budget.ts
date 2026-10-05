@@ -5,6 +5,9 @@ export type Budget = {
   categoryId: string;
   categoryName: string;
   amount: number;
+  spentAmount: number;
+  remainingAmount: number;
+  spendingPercentage: number;
   period: BudgetPeriod;
   startDate: string;
   endDate: string;
@@ -14,6 +17,13 @@ export type Budget = {
 
 export type CreateBudgetRequest = {
   categoryId: string;
+  amount: number;
+  period: BudgetPeriod;
+  startDate: string;
+  endDate: string;
+};
+
+export type UpdateBudgetRequest = {
   amount: number;
   period: BudgetPeriod;
   startDate: string;

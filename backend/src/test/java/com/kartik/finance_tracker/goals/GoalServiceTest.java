@@ -8,6 +8,7 @@ import static org.mockito.Mockito.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -61,7 +62,7 @@ class GoalServiceTest {
          * Tests that specifically need a missing goal can override this stub.
          */
         when(goalRepository.findByIdAndUser_Id(goalId, userId))
-                .thenReturn(java.util.Optional.of(goal));
+                .thenReturn(Optional.of(goal));
     }
 
     @Test
@@ -73,7 +74,7 @@ class GoalServiceTest {
         );
 
         when(userRepository.findById(userId))
-                .thenReturn(java.util.Optional.of(user));
+                .thenReturn(Optional.of(user));
 
         when(goalRepository.save(any(Goal.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -98,7 +99,7 @@ class GoalServiceTest {
         );
 
         when(userRepository.findById(userId))
-                .thenReturn(java.util.Optional.of(user));
+                .thenReturn(Optional.of(user));
 
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
@@ -122,7 +123,7 @@ class GoalServiceTest {
         );
 
         when(userRepository.findById(userId))
-                .thenReturn(java.util.Optional.empty());
+                .thenReturn(Optional.empty());
 
         assertThrows(
                 ResourceNotFoundException.class,
@@ -133,7 +134,7 @@ class GoalServiceTest {
     @Test
     void shouldGetGoalsForUser() {
         when(userRepository.findById(userId))
-                .thenReturn(java.util.Optional.of(user));
+                .thenReturn(Optional.of(user));
 
         when(goalRepository.findByUser_Id(userId))
                 .thenReturn(List.of(goal));
@@ -142,6 +143,30 @@ class GoalServiceTest {
 
         assertEquals(1, response.size());
         assertEquals("Gaming PC", response.get(0).name());
+    }
+
+    @Test
+    void shouldNotReturnCancelledGoals() {
+        Goal cancelledGoal = new Goal(
+                user,
+                "Cancelled Goal",
+                new BigDecimal("50000.00"),
+                LocalDate.of(2027, 12, 31)
+        );
+
+        cancelledGoal.cancel();
+
+        when(userRepository.findById(userId))
+                .thenReturn(Optional.of(user));
+
+        when(goalRepository.findByUser_Id(userId))
+                .thenReturn(List.of(goal, cancelledGoal));
+
+        List<GoalResponse> response = goalService.getGoals(userId);
+
+        assertEquals(1, response.size());
+        assertEquals("Gaming PC", response.get(0).name());
+        assertEquals(GoalStatus.ACTIVE, response.get(0).status());
     }
 
     @Test
@@ -232,6 +257,7 @@ class GoalServiceTest {
                 new BigDecimal("60000.00"),
                 response.currentAmount()
         );
+
         assertEquals(GoalStatus.ACTIVE, response.status());
     }
 
@@ -269,6 +295,7 @@ class GoalServiceTest {
                 new BigDecimal("150000.00"),
                 response.currentAmount()
         );
+
         assertEquals(GoalStatus.COMPLETED, response.status());
     }
 
@@ -299,13 +326,10 @@ class GoalServiceTest {
     }
 
     @Test
-    void shouldCancelGoal() {
-        when(goalRepository.save(any(Goal.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+    void shouldDeleteGoal() {
+        goalService.deleteGoal(userId, goalId);
 
-        GoalResponse response = goalService.cancelGoal(userId, goalId);
-
-        assertEquals(GoalStatus.CANCELLED, response.status());
+        verify(goalRepository).delete(goal);
     }
 
     @Test

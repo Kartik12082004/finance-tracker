@@ -112,4 +112,17 @@ public class Budget {
     public OffsetDateTime getUpdatedAt() {
         return updatedAt;
     }
+
+    public void update(
+            BigDecimal amount,
+            BudgetPeriod period,
+            LocalDate startDate,
+            LocalDate endDate
+    ) {
+        this.amount = amount;
+        this.period = period;
+        this.startDate = startDate;
+        this.endDate = endDate;
+        this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
 }

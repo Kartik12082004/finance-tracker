@@ -1,5 +1,6 @@
 package com.kartik.finance_tracker.transactions;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -19,6 +20,25 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     boolean existsByAccount_IdOrDestinationAccount_Id(
             UUID accountId,
             UUID destinationAccountId
+    );
+
+    @Query("""
+            SELECT
+                COALESCE(SUM(t.amount), 0)
+            FROM Transaction t
+            WHERE t.user.id = :userId
+            AND t.category.id IN :categoryIds
+            AND t.type = :expenseType
+            AND t.status = com.kartik.finance_tracker.transactions.TransactionStatus.POSTED
+            AND t.occurredAt >= :start
+            AND t.occurredAt < :end
+            """)
+    BigDecimal findPostedExpenseAmountForBudget(
+            UUID userId,
+            java.util.Collection<UUID> categoryIds,
+            TransactionType expenseType,
+            OffsetDateTime start,
+            OffsetDateTime end
     );
 
     @Query("""
@@ -81,5 +101,4 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             OffsetDateTime start,
             OffsetDateTime end
     );
-
 }

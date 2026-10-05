@@ -26,6 +26,8 @@ import {
   saveAuthSession,
 } from "./auth/authStorage";
 import Goals from "./components/Goals";
+import Budgets from "./components/Budgets";
+import RecurringTransactions from "./components/RecurringTransactions";
 
 function App() {
   // Restore the previous authentication session when the application starts.
@@ -231,6 +233,10 @@ function App() {
       <Dashboard refreshKey={dashboardRefreshKey} />
 
       <Goals />
+
+      <Budgets refreshKey={dashboardRefreshKey} />
+
+      <RecurringTransactions />
 
       <AddAccountForm onAddAccount={addAccount} />
 

@@ -5,8 +5,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -64,6 +66,9 @@ class BudgetControllerTest {
                 categoryId,
                 "Food",
                 new BigDecimal("10000.00"),
+                new BigDecimal("6350.00"),
+                new BigDecimal("3650.00"),
+                new BigDecimal("63.50"),
                 BudgetPeriod.MONTHLY,
                 LocalDate.of(2026, 9, 1),
                 LocalDate.of(2026, 9, 30),
@@ -89,7 +94,6 @@ class BudgetControllerTest {
                 }
                 """.formatted(categoryId);
 
-        // The API should create a budget for the authenticated user.
         mockMvc.perform(
                 post("/api/budgets")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -100,6 +104,9 @@ class BudgetControllerTest {
         .andExpect(jsonPath("$.categoryId").value(categoryId.toString()))
         .andExpect(jsonPath("$.categoryName").value("Food"))
         .andExpect(jsonPath("$.amount").value(10000.00))
+        .andExpect(jsonPath("$.spentAmount").value(6350.00))
+        .andExpect(jsonPath("$.remainingAmount").value(3650.00))
+        .andExpect(jsonPath("$.spendingPercentage").value(63.50))
         .andExpect(jsonPath("$.period").value("MONTHLY"));
 
         verify(budgetService).createBudget(eq(userId), any());
@@ -115,14 +122,16 @@ class BudgetControllerTest {
         when(budgetService.getBudgets(userId))
                 .thenReturn(List.of(response));
 
-        // The API should return all budgets belonging to the authenticated user.
         mockMvc.perform(
                 get("/api/budgets")
         )
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.length()").value(1))
         .andExpect(jsonPath("$[0].categoryName").value("Food"))
-        .andExpect(jsonPath("$[0].amount").value(10000.00));
+        .andExpect(jsonPath("$[0].amount").value(10000.00))
+        .andExpect(jsonPath("$[0].spentAmount").value(6350.00))
+        .andExpect(jsonPath("$[0].remainingAmount").value(3650.00))
+        .andExpect(jsonPath("$[0].spendingPercentage").value(63.50));
 
         verify(budgetService).getBudgets(userId);
     }
@@ -139,16 +148,93 @@ class BudgetControllerTest {
         when(budgetService.getBudgetsForDate(userId, date))
                 .thenReturn(List.of(response));
 
-        // The API should return budgets active on the requested date.
         mockMvc.perform(
                 get("/api/budgets")
                         .param("date", "2026-09-15")
         )
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.length()").value(1))
-        .andExpect(jsonPath("$[0].categoryName").value("Food"));
+        .andExpect(jsonPath("$[0].categoryName").value("Food"))
+        .andExpect(jsonPath("$[0].spentAmount").value(6350.00))
+        .andExpect(jsonPath("$[0].remainingAmount").value(3650.00))
+        .andExpect(jsonPath("$[0].spendingPercentage").value(63.50));
 
         verify(budgetService).getBudgetsForDate(userId, date);
+    }
+
+    @Test
+    void shouldUpdateBudget() throws Exception {
+        UUID budgetId = UUID.randomUUID();
+
+        BudgetResponse response = new BudgetResponse(
+                budgetId,
+                categoryId,
+                "Food",
+                new BigDecimal("15000.00"),
+                new BigDecimal("6350.00"),
+                new BigDecimal("8650.00"),
+                new BigDecimal("42.33"),
+                BudgetPeriod.MONTHLY,
+                LocalDate.of(2026, 9, 1),
+                LocalDate.of(2026, 9, 30),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
+
+        when(budgetService.updateBudget(
+                eq(userId),
+                eq(budgetId),
+                any()
+        )).thenReturn(response);
+
+        String request = """
+                {
+                    "amount": 15000.00,
+                    "period": "MONTHLY",
+                    "startDate": "2026-09-01",
+                    "endDate": "2026-09-30"
+                }
+                """;
+
+        mockMvc.perform(
+                put("/api/budgets/{id}", budgetId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request)
+        )
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(budgetId.toString()))
+        .andExpect(jsonPath("$.amount").value(15000.00))
+        .andExpect(jsonPath("$.categoryName").value("Food"))
+        .andExpect(jsonPath("$.spentAmount").value(6350.00))
+        .andExpect(jsonPath("$.remainingAmount").value(8650.00))
+        .andExpect(jsonPath("$.spendingPercentage").value(42.33));
+
+        verify(budgetService).updateBudget(
+                eq(userId),
+                eq(budgetId),
+                any()
+        );
+    }
+
+    @Test
+    void shouldDeleteBudget() throws Exception {
+        UUID budgetId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
+
+        mockMvc.perform(
+                delete("/api/budgets/{id}", budgetId)
+        )
+        .andExpect(status().isNoContent());
+
+        verify(budgetService).deleteBudget(
+                userId,
+                budgetId
+        );
     }
 
     @Test
@@ -272,6 +358,9 @@ class BudgetControllerTest {
                 categoryId,
                 "Food",
                 new BigDecimal("10000.00"),
+                new BigDecimal("6350.00"),
+                new BigDecimal("3650.00"),
+                new BigDecimal("63.50"),
                 BudgetPeriod.MONTHLY,
                 LocalDate.of(2026, 9, 1),
                 LocalDate.of(2026, 9, 30),

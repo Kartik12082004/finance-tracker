@@ -40,10 +40,13 @@ export async function updateRecurringTransaction(
 
 export async function pauseRecurringTransaction(
   recurringTransactionId: string,
-  pausedUntil: string,
+  duration: number | null,
+  untilResume: boolean,
 ): Promise<RecurringTransaction> {
+  const params = untilResume ? "untilResume=true" : `duration=${duration}`;
+
   return apiRequest<RecurringTransaction>(
-    `http://localhost:8080/api/recurring-transactions/${recurringTransactionId}/pause?pausedUntil=${pausedUntil}`,
+    `http://localhost:8080/api/recurring-transactions/${recurringTransactionId}/pause?${params}`,
     {
       method: "PATCH",
     },
@@ -55,17 +58,6 @@ export async function resumeRecurringTransaction(
 ): Promise<RecurringTransaction> {
   return apiRequest<RecurringTransaction>(
     `http://localhost:8080/api/recurring-transactions/${recurringTransactionId}/resume`,
-    {
-      method: "PATCH",
-    },
-  );
-}
-
-export async function deactivateRecurringTransaction(
-  recurringTransactionId: string,
-): Promise<RecurringTransaction> {
-  return apiRequest<RecurringTransaction>(
-    `http://localhost:8080/api/recurring-transactions/${recurringTransactionId}/deactivate`,
     {
       method: "PATCH",
     },

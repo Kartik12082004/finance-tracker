@@ -55,8 +55,14 @@ public class GoalService {
     public List<GoalResponse> getGoals(UUID userId) {
         getUser(userId);
 
+        /*
+         * CANCELLED is retained in the database enum for backwards
+         * compatibility, but cancelled goals are no longer part of
+         * the user-facing goal lifecycle.
+         */
         return goalRepository.findByUser_Id(userId)
                 .stream()
+                .filter(goal -> goal.getStatus() != GoalStatus.CANCELLED)
                 .map(this::toResponse)
                 .toList();
     }
@@ -163,15 +169,13 @@ public class GoalService {
     }
 
     @Transactional
-    public GoalResponse cancelGoal(
+    public void deleteGoal(
             UUID userId,
             UUID goalId
     ) {
         Goal goal = getGoal(userId, goalId);
 
-        goal.cancel();
-
-        return toResponse(goalRepository.save(goal));
+        goalRepository.delete(goal);
     }
 
     private User getUser(UUID userId) {

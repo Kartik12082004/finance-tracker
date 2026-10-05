@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import {
-  cancelGoal,
   contributeToGoal,
   createGoal,
+  deleteGoal,
   getGoals,
   pauseGoal,
   resumeGoal,
@@ -38,6 +38,7 @@ export default function Goals() {
   const [contributionAmounts, setContributionAmounts] = useState<
     Record<string, string>
   >({});
+
   const [activeAction, setActiveAction] = useState<string | null>(null);
 
   async function loadGoals() {
@@ -46,7 +47,12 @@ export default function Goals() {
       setError(null);
 
       const response = await getGoals();
-      setGoals(response);
+
+      /*
+       * Keep this defensive filtering in the UI as well as the
+       * backend. Older cancelled rows should never be displayed.
+       */
+      setGoals(response.filter((goal) => goal.status !== "CANCELLED"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load goals.");
     } finally {
@@ -55,13 +61,14 @@ export default function Goals() {
   }
 
   useEffect(() => {
-    async function initializeGoals() {
+    async function loadInitialGoals() {
       try {
         setIsLoading(true);
         setError(null);
 
         const response = await getGoals();
-        setGoals(response);
+
+        setGoals(response.filter((goal) => goal.status !== "CANCELLED"));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load goals.");
       } finally {
@@ -69,7 +76,7 @@ export default function Goals() {
       }
     }
 
-    void initializeGoals();
+    void loadInitialGoals();
   }, []);
 
   async function handleCreateGoal(event: React.FormEvent<HTMLFormElement>) {
@@ -173,9 +180,9 @@ export default function Goals() {
     }
   }
 
-  async function handleCancel(goalId: string) {
+  async function handleDelete(goalId: string) {
     const confirmed = window.confirm(
-      "Are you sure you want to cancel this goal?",
+      "Are you sure you want to permanently delete this goal? This cannot be undone.",
     );
 
     if (!confirmed) {
@@ -183,13 +190,22 @@ export default function Goals() {
     }
 
     try {
-      setActiveAction(`cancel-${goalId}`);
+      setActiveAction(`delete-${goalId}`);
       setError(null);
 
-      await cancelGoal(goalId);
-      await loadGoals();
+      await deleteGoal(goalId);
+
+      setGoals((currentGoals) =>
+        currentGoals.filter((goal) => goal.id !== goalId),
+      );
+
+      setContributionAmounts((current) => {
+        const updated = { ...current };
+        delete updated[goalId];
+        return updated;
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cancel goal.");
+      setError(err instanceof Error ? err.message : "Failed to delete goal.");
     } finally {
       setActiveAction(null);
     }
@@ -216,6 +232,7 @@ export default function Goals() {
         <form onSubmit={handleCreateGoal}>
           <div>
             <label htmlFor="goal-name">Name</label>
+
             <input
               id="goal-name"
               type="text"
@@ -226,6 +243,7 @@ export default function Goals() {
 
           <div>
             <label htmlFor="goal-target-amount">Target amount</label>
+
             <input
               id="goal-target-amount"
               type="number"
@@ -238,6 +256,7 @@ export default function Goals() {
 
           <div>
             <label htmlFor="goal-target-date">Target date</label>
+
             <input
               id="goal-target-date"
               type="date"
@@ -261,13 +280,13 @@ export default function Goals() {
           <ul>
             {goals.map((goal) => {
               const progress = getProgress(goal);
+
               const remaining = Math.max(
                 0,
                 goal.targetAmount - goal.currentAmount,
               );
 
               const isCompleted = goal.status === "COMPLETED";
-              const isCancelled = goal.status === "CANCELLED";
               const isPaused = goal.status === "PAUSED";
               const isActive = goal.status === "ACTIVE";
 
@@ -347,22 +366,18 @@ export default function Goals() {
                         </button>
                       )}
 
-                      {(isActive || isPaused) && (
-                        <button
-                          type="button"
-                          onClick={() => void handleCancel(goal.id)}
-                          disabled={activeAction === `cancel-${goal.id}`}
-                        >
-                          {activeAction === `cancel-${goal.id}`
-                            ? "Cancelling..."
-                            : "Cancel"}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(goal.id)}
+                        disabled={activeAction === `delete-${goal.id}`}
+                      >
+                        {activeAction === `delete-${goal.id}`
+                          ? "Deleting..."
+                          : "Delete"}
+                      </button>
                     </div>
 
                     {isCompleted && <p>Goal completed.</p>}
-
-                    {isCancelled && <p>Goal cancelled.</p>}
                   </article>
                 </li>
               );

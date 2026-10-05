@@ -1,5 +1,6 @@
 package com.kartik.finance_tracker.recurring;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -45,8 +46,12 @@ public class RecurringTransactionService {
             CreateRecurringTransactionRequest request
     ) {
         User user = getUser(userId);
-        Account account = getAccountForUser(request.accountId(), userId);
-        Category category = getCategoryForUser(request.categoryId(), userId);
+
+        Account account =
+                getAccountForUser(request.accountId(), userId);
+
+        Category category =
+                getCategoryForUser(request.categoryId(), userId);
 
         validateTransactionType(request.type());
         validateAmountScale(request.amount());
@@ -75,7 +80,8 @@ public class RecurringTransactionService {
     ) {
         getUser(userId);
 
-        return recurringTransactionRepository.findByUser_Id(userId)
+        return recurringTransactionRepository
+                .findByUser_Id(userId)
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -88,16 +94,24 @@ public class RecurringTransactionService {
             UpdateRecurringTransactionRequest request
     ) {
         RecurringTransaction recurringTransaction =
-                getRecurringTransaction(userId, recurringTransactionId);
+                getRecurringTransaction(
+                        userId,
+                        recurringTransactionId
+                );
 
-        Account account = getAccountForUser(request.accountId(), userId);
-        Category category = getCategoryForUser(request.categoryId(), userId);
+        Account account =
+                getAccountForUser(request.accountId(), userId);
+
+        Category category =
+                getCategoryForUser(request.categoryId(), userId);
 
         validateTransactionType(request.type());
         validateAmountScale(request.amount());
 
         /*
-         * Editing a recurring rule only changes future generated transactions.
+         * Editing a recurring rule only changes future generated
+         * transactions.
+         *
          * Transactions that were already generated remain unchanged.
          */
         recurringTransaction.update(
@@ -120,18 +134,45 @@ public class RecurringTransactionService {
     public RecurringTransactionResponse pauseRecurringTransaction(
             UUID userId,
             UUID recurringTransactionId,
-            LocalDate pausedUntil
+            Integer duration,
+            boolean untilResume
     ) {
         RecurringTransaction recurringTransaction =
-                getRecurringTransaction(userId, recurringTransactionId);
-
-        validatePauseDate(pausedUntil);
+                getRecurringTransaction(
+                        userId,
+                        recurringTransactionId
+                );
 
         /*
-         * Pausing moves the next occurrence to the resume date.
-         * Missed occurrences during the pause are not generated later.
+         * Exactly one pause mode must be selected:
+         *
+         * duration=2
+         * OR
+         * untilResume=true
          */
-        recurringTransaction.pause(pausedUntil);
+        if (duration != null && untilResume) {
+            throw new IllegalArgumentException(
+                    "Choose either a pause duration or pause until manually resumed"
+            );
+        }
+
+        if (duration == null && !untilResume) {
+            throw new IllegalArgumentException(
+                    "Pause duration is required"
+            );
+        }
+
+        if (duration != null && duration < 1) {
+            throw new IllegalArgumentException(
+                    "Pause duration must be at least 1"
+            );
+        }
+
+        if (untilResume) {
+            recurringTransaction.pauseUntilResumed();
+        } else {
+            recurringTransaction.pauseFor(duration);
+        }
 
         return toResponse(
                 recurringTransactionRepository.save(recurringTransaction)
@@ -144,24 +185,18 @@ public class RecurringTransactionService {
             UUID recurringTransactionId
     ) {
         RecurringTransaction recurringTransaction =
-                getRecurringTransaction(userId, recurringTransactionId);
+                getRecurringTransaction(
+                        userId,
+                        recurringTransactionId
+                );
 
-        recurringTransaction.resume();
-
-        return toResponse(
-                recurringTransactionRepository.save(recurringTransaction)
-        );
-    }
-
-    @Transactional
-    public RecurringTransactionResponse deactivateRecurringTransaction(
-            UUID userId,
-            UUID recurringTransactionId
-    ) {
-        RecurringTransaction recurringTransaction =
-                getRecurringTransaction(userId, recurringTransactionId);
-
-        recurringTransaction.deactivate();
+        /*
+         * Resume from the next future occurrence.
+         *
+         * If the original next occurrence is already in the past,
+         * missed occurrences are skipped.
+         */
+        recurringTransaction.resume(LocalDate.now());
 
         return toResponse(
                 recurringTransactionRepository.save(recurringTransaction)
@@ -174,7 +209,10 @@ public class RecurringTransactionService {
             UUID recurringTransactionId
     ) {
         RecurringTransaction recurringTransaction =
-                getRecurringTransaction(userId, recurringTransactionId);
+                getRecurringTransaction(
+                        userId,
+                        recurringTransactionId
+                );
 
         /*
          * Deleting the recurring rule must never delete historical
@@ -186,16 +224,21 @@ public class RecurringTransactionService {
     private User getUser(UUID userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() ->
-                        new ResourceNotFoundException("User not found"));
+                        new ResourceNotFoundException(
+                                "User not found"
+                        ));
     }
 
     private Account getAccountForUser(
             UUID accountId,
             UUID userId
     ) {
-        Account account = accountRepository.findById(accountId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Account not found"));
+        Account account =
+                accountRepository.findById(accountId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Account not found"
+                                ));
 
         if (!account.getUser().getId().equals(userId)) {
             throw new IllegalArgumentException(
@@ -210,9 +253,12 @@ public class RecurringTransactionService {
             UUID categoryId,
             UUID userId
     ) {
-        Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Category not found"));
+        Category category =
+                categoryRepository.findById(categoryId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Category not found"
+                                ));
 
         if (!category.getUser().getId().equals(userId)) {
             throw new IllegalArgumentException(
@@ -228,7 +274,10 @@ public class RecurringTransactionService {
             UUID recurringTransactionId
     ) {
         return recurringTransactionRepository
-                .findByIdAndUser_Id(recurringTransactionId, userId)
+                .findByIdAndUser_Id(
+                        recurringTransactionId,
+                        userId
+                )
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "Recurring transaction not found"
@@ -243,18 +292,10 @@ public class RecurringTransactionService {
         }
     }
 
-    private void validateAmountScale(java.math.BigDecimal amount) {
+    private void validateAmountScale(BigDecimal amount) {
         if (amount.scale() > 2) {
             throw new IllegalArgumentException(
                     "Amount cannot have more than 2 decimal places"
-            );
-        }
-    }
-
-    private void validatePauseDate(LocalDate pausedUntil) {
-        if (!pausedUntil.isAfter(LocalDate.now())) {
-            throw new IllegalArgumentException(
-                    "Pause date must be in the future"
             );
         }
     }
