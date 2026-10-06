@@ -12,6 +12,7 @@ public record InvestmentResponse(
         InvestmentType type,
         BigDecimal quantity,
         BigDecimal averagePurchasePrice,
+        BigDecimal investedAmount,
         BigDecimal currentValue,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt

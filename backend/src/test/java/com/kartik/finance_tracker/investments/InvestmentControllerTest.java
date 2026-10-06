@@ -19,8 +19,8 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -43,6 +43,7 @@ class InvestmentControllerTest {
 
     @BeforeEach
     void setUp() {
+
         investmentService = mock(InvestmentService.class);
         currentUserService = mock(CurrentUserService.class);
 
@@ -63,10 +64,12 @@ class InvestmentControllerTest {
 
     @Test
     void shouldCreateInvestment() throws Exception {
+
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
-        InvestmentResponse response = createInvestmentResponse();
+        InvestmentResponse response =
+                createInvestmentResponse();
 
         when(investmentService.createInvestment(
                 eq(userId),
@@ -80,7 +83,6 @@ class InvestmentControllerTest {
                 }
                 """;
 
-        // Investment ownership comes from the authenticated JWT user.
         mockMvc.perform(
                 post("/api/investments")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -93,6 +95,8 @@ class InvestmentControllerTest {
                 .value("NVIDIA"))
         .andExpect(jsonPath("$.type")
                 .value("STOCK"))
+        .andExpect(jsonPath("$.investedAmount")
+                .value(10000.00))
         .andExpect(jsonPath("$.currentValue")
                 .value(12000.00));
 
@@ -102,24 +106,28 @@ class InvestmentControllerTest {
 
     @Test
     void shouldGetInvestments() throws Exception {
+
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
-        InvestmentResponse response = createInvestmentResponse();
+        InvestmentResponse response =
+                createInvestmentResponse();
 
         when(investmentService.getInvestments(userId))
                 .thenReturn(List.of(response));
 
-        // The API should return only investments belonging to the user.
         mockMvc.perform(
                 get("/api/investments")
         )
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$.length()")
+                .value(1))
         .andExpect(jsonPath("$[0].name")
                 .value("NVIDIA"))
         .andExpect(jsonPath("$[0].type")
-                .value("STOCK"));
+                .value("STOCK"))
+        .andExpect(jsonPath("$[0].investedAmount")
+                .value(10000.00));
 
         verify(investmentService)
                 .getInvestments(userId);
@@ -127,25 +135,25 @@ class InvestmentControllerTest {
 
     @Test
     void shouldGetPortfolio() throws Exception {
+
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
         InvestmentResponse investment =
                 createInvestmentResponse();
 
-        PortfolioResponse response = new PortfolioResponse(
-                new BigDecimal("10000.00"),
-                new BigDecimal("12000.00"),
-                new BigDecimal("2000.00"),
-                new BigDecimal("20.00"),
-                List.of(investment)
-        );
+        PortfolioResponse response =
+                new PortfolioResponse(
+                        new BigDecimal("10000.00"),
+                        new BigDecimal("12000.00"),
+                        new BigDecimal("2000.00"),
+                        new BigDecimal("20.00"),
+                        List.of(investment)
+                );
 
         when(investmentService.getPortfolio(userId))
                 .thenReturn(response);
 
-        // "portfolio" is a fixed route and should be handled separately
-        // from the /{investmentId} route.
         mockMvc.perform(
                 get("/api/investments/portfolio")
         )
@@ -159,7 +167,9 @@ class InvestmentControllerTest {
         .andExpect(jsonPath("$.returnPercentage")
                 .value(20.00))
         .andExpect(jsonPath("$.investments.length()")
-                .value(1));
+                .value(1))
+        .andExpect(jsonPath("$.investments[0].investedAmount")
+                .value(10000.00));
 
         verify(investmentService)
                 .getPortfolio(userId);
@@ -167,10 +177,12 @@ class InvestmentControllerTest {
 
     @Test
     void shouldGetInvestment() throws Exception {
+
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
-        InvestmentResponse response = createInvestmentResponse();
+        InvestmentResponse response =
+                createInvestmentResponse();
 
         when(investmentService.getInvestment(
                 userId,
@@ -178,24 +190,34 @@ class InvestmentControllerTest {
         )).thenReturn(response);
 
         mockMvc.perform(
-                get("/api/investments/{investmentId}", investmentId)
+                get(
+                        "/api/investments/{investmentId}",
+                        investmentId
+                )
         )
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.id")
                 .value(investmentId.toString()))
         .andExpect(jsonPath("$.name")
-                .value("NVIDIA"));
+                .value("NVIDIA"))
+        .andExpect(jsonPath("$.investedAmount")
+                .value(10000.00));
 
         verify(investmentService)
-                .getInvestment(userId, investmentId);
+                .getInvestment(
+                        userId,
+                        investmentId
+                );
     }
 
     @Test
-    void shouldUpdateInvestment() throws Exception {
+    void shouldUpdateCurrentValueOnly() throws Exception {
+
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
-        InvestmentResponse response = createInvestmentResponse();
+        InvestmentResponse response =
+                createInvestmentResponse();
 
         when(investmentService.updateInvestment(
                 eq(userId),
@@ -205,21 +227,21 @@ class InvestmentControllerTest {
 
         String request = """
                 {
-                    "name": "NVIDIA Corporation",
-                    "type": "STOCK",
                     "currentValue": 12000.00
                 }
                 """;
 
         mockMvc.perform(
-                put("/api/investments/{investmentId}",
-                        investmentId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(request)
+                put(
+                        "/api/investments/{investmentId}",
+                        investmentId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request)
         )
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.name")
-                .value("NVIDIA"));
+        .andExpect(jsonPath("$.currentValue")
+                .value(12000.00));
 
         verify(investmentService)
                 .updateInvestment(
@@ -231,21 +253,28 @@ class InvestmentControllerTest {
 
     @Test
     void shouldDeleteInvestment() throws Exception {
+
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
         mockMvc.perform(
-                delete("/api/investments/{investmentId}",
-                        investmentId)
+                delete(
+                        "/api/investments/{investmentId}",
+                        investmentId
+                )
         )
         .andExpect(status().isNoContent());
 
         verify(investmentService)
-                .deleteInvestment(userId, investmentId);
+                .deleteInvestment(
+                        userId,
+                        investmentId
+                );
     }
 
     @Test
     void shouldBuyInvestment() throws Exception {
+
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
@@ -262,19 +291,19 @@ class InvestmentControllerTest {
                 {
                     "accountId": "%s",
                     "amount": 10000.00,
-                    "quantity": 10.00,
-                    "pricePerUnit": 1000.00,
+                    "quantity": 20.00,
+                    "pricePerUnit": 500.00,
                     "occurredAt": "2026-09-23T10:00:00Z"
                 }
                 """.formatted(accountId);
 
-        // A BUY creates an investment transaction and moves money
-        // out of the selected account.
         mockMvc.perform(
-                post("/api/investments/{investmentId}/buys",
-                        investmentId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(request)
+                post(
+                        "/api/investments/{investmentId}/buys",
+                        investmentId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request)
         )
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.investmentId")
@@ -284,7 +313,11 @@ class InvestmentControllerTest {
         .andExpect(jsonPath("$.type")
                 .value("BUY"))
         .andExpect(jsonPath("$.amount")
-                .value(10000.00));
+                .value(10000.00))
+        .andExpect(jsonPath("$.quantity")
+                .value(20.00))
+        .andExpect(jsonPath("$.pricePerUnit")
+                .value(500.00));
 
         verify(investmentService)
                 .buy(
@@ -295,7 +328,8 @@ class InvestmentControllerTest {
     }
 
     @Test
-    void shouldSellInvestment() throws Exception {
+    void shouldSellInvestmentWithQuantityOnly() throws Exception {
+
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
@@ -311,19 +345,18 @@ class InvestmentControllerTest {
         String request = """
                 {
                     "accountId": "%s",
-                    "amount": 5000.00,
                     "quantity": 5.00,
-                    "pricePerUnit": 1000.00,
                     "occurredAt": "2026-09-23T10:00:00Z"
                 }
                 """.formatted(accountId);
 
-        // A SELL returns money to the selected account.
         mockMvc.perform(
-                post("/api/investments/{investmentId}/sells",
-                        investmentId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(request)
+                post(
+                        "/api/investments/{investmentId}/sells",
+                        investmentId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request)
         )
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.investmentId")
@@ -332,8 +365,12 @@ class InvestmentControllerTest {
                 .value(accountId.toString()))
         .andExpect(jsonPath("$.type")
                 .value("SELL"))
+        .andExpect(jsonPath("$.quantity")
+                .value(5.00))
+        .andExpect(jsonPath("$.pricePerUnit")
+                .value(600.00))
         .andExpect(jsonPath("$.amount")
-                .value(5000.00));
+                .value(3000.00));
 
         verify(investmentService)
                 .sell(
@@ -345,6 +382,7 @@ class InvestmentControllerTest {
 
     @Test
     void shouldGetInvestmentTransactions() throws Exception {
+
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
@@ -356,13 +394,15 @@ class InvestmentControllerTest {
                 investmentId
         )).thenReturn(List.of(response));
 
-        // Transaction history belongs to the selected investment.
         mockMvc.perform(
-                get("/api/investments/{investmentId}/transactions",
-                        investmentId)
+                get(
+                        "/api/investments/{investmentId}/transactions",
+                        investmentId
+                )
         )
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$.length()")
+                .value(1))
         .andExpect(jsonPath("$[0].type")
                 .value("BUY"))
         .andExpect(jsonPath("$[0].amount")
@@ -376,25 +416,54 @@ class InvestmentControllerTest {
     }
 
     @Test
-    void shouldRejectMissingAccount() throws Exception {
+    void shouldRejectMissingBuyAccount() throws Exception {
+
         String request = """
                 {
                     "amount": 10000.00,
+                    "quantity": 20.00,
+                    "pricePerUnit": 500.00,
                     "occurredAt": "2026-09-23T10:00:00Z"
                 }
                 """;
 
         mockMvc.perform(
-                post("/api/investments/{investmentId}/buys",
-                        investmentId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(request)
+                post(
+                        "/api/investments/{investmentId}/buys",
+                        investmentId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request)
         )
         .andExpect(status().isBadRequest());
     }
 
     @Test
-    void shouldRejectMissingAmount() throws Exception {
+    void shouldRejectMissingBuyAmount() throws Exception {
+
+        String request = """
+                {
+                    "accountId": "%s",
+                    "quantity": 20.00,
+                    "pricePerUnit": 500.00,
+                    "occurredAt": "2026-09-23T10:00:00Z"
+                }
+                """.formatted(accountId);
+
+        mockMvc.perform(
+                post(
+                        "/api/investments/{investmentId}/buys",
+                        investmentId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request)
+        )
+        .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldRejectMissingSellQuantity() throws Exception {
+
         String request = """
                 {
                     "accountId": "%s",
@@ -403,40 +472,45 @@ class InvestmentControllerTest {
                 """.formatted(accountId);
 
         mockMvc.perform(
-                post("/api/investments/{investmentId}/buys",
-                        investmentId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(request)
+                post(
+                        "/api/investments/{investmentId}/sells",
+                        investmentId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request)
         )
         .andExpect(status().isBadRequest());
     }
 
     @Test
     void shouldRejectNegativeCurrentValue() throws Exception {
+
         String request = """
                 {
-                    "name": "NVIDIA",
-                    "type": "STOCK",
                     "currentValue": -100.00
                 }
                 """;
 
         mockMvc.perform(
-                put("/api/investments/{investmentId}",
-                        investmentId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(request)
+                put(
+                        "/api/investments/{investmentId}",
+                        investmentId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request)
         )
         .andExpect(status().isBadRequest());
     }
 
     private InvestmentResponse createInvestmentResponse() {
+
         return new InvestmentResponse(
                 investmentId,
                 "NVIDIA",
                 InvestmentType.STOCK,
-                new BigDecimal("10.00"),
-                new BigDecimal("1000.00"),
+                new BigDecimal("20.00"),
+                new BigDecimal("500.00"),
+                new BigDecimal("10000.00"),
                 new BigDecimal("12000.00"),
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
@@ -444,28 +518,30 @@ class InvestmentControllerTest {
     }
 
     private InvestmentTransactionResponse createBuyResponse() {
+
         return new InvestmentTransactionResponse(
                 UUID.randomUUID(),
                 investmentId,
                 accountId,
                 InvestmentTransactionType.BUY,
                 new BigDecimal("10000.00"),
-                new BigDecimal("10.00"),
-                new BigDecimal("1000.00"),
+                new BigDecimal("20.00"),
+                new BigDecimal("500.00"),
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );
     }
 
     private InvestmentTransactionResponse createSellResponse() {
+
         return new InvestmentTransactionResponse(
                 UUID.randomUUID(),
                 investmentId,
                 accountId,
                 InvestmentTransactionType.SELL,
-                new BigDecimal("5000.00"),
+                new BigDecimal("3000.00"),
                 new BigDecimal("5.00"),
-                new BigDecimal("1000.00"),
+                new BigDecimal("600.00"),
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );

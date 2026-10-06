@@ -83,15 +83,8 @@ public class Investment {
         this.updatedAt = this.createdAt;
     }
 
-    public void update(
-            String name,
-            InvestmentType type,
-            BigDecimal currentValue
-    ) {
-        this.name = name;
-        this.type = type;
+    public void updateCurrentValue(BigDecimal currentValue) {
         this.currentValue = currentValue;
-        this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
     public void setQuantity(BigDecimal quantity) {

@@ -28,6 +28,7 @@ import {
 import Goals from "./components/Goals";
 import Budgets from "./components/Budgets";
 import RecurringTransactions from "./components/RecurringTransactions";
+import Investments from "./components/Investments";
 
 function App() {
   // Restore the previous authentication session when the application starts.
@@ -237,6 +238,8 @@ function App() {
       <Budgets refreshKey={dashboardRefreshKey} />
 
       <RecurringTransactions />
+
+      <Investments accounts={accounts} />
 
       <AddAccountForm onAddAccount={addAccount} />
 

@@ -79,7 +79,6 @@ public class InvestmentTransaction {
             BigDecimal pricePerUnit,
             OffsetDateTime occurredAt
     ) {
-        this.id = UUID.randomUUID();
         this.user = user;
         this.investment = investment;
         this.account = account;

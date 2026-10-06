@@ -9,20 +9,22 @@ import jakarta.validation.constraints.NotNull;
 
 public record BuyInvestmentRequest(
 
-        @NotNull(message = "Account is required")
+        @NotNull
         UUID accountId,
 
-        @NotNull(message = "Amount is required")
-        @DecimalMin(value = "0.01", message = "Amount must be greater than zero")
-        BigDecimal amount,
-
-        @DecimalMin(value = "0.00000001", message = "Quantity must be greater than zero")
+        @NotNull
+        @DecimalMin("0.00000001")
         BigDecimal quantity,
 
-        @DecimalMin(value = "0.0001", message = "Price per unit must be greater than zero")
+        @NotNull
+        @DecimalMin("0.0001")
         BigDecimal pricePerUnit,
 
-        @NotNull(message = "Occurred at is required")
+        @NotNull
+        @DecimalMin("0.01")
+        BigDecimal amount,
+
+        @NotNull
         OffsetDateTime occurredAt
 ) {
 }

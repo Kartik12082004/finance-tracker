@@ -22,7 +22,10 @@ import com.kartik.finance_tracker.investments.dto.UpdateInvestmentRequest;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
+import lombok.RequiredArgsConstructor;
+
 @Service
+@RequiredArgsConstructor
 public class InvestmentService {
 
     private final InvestmentRepository investmentRepository;
@@ -30,21 +33,6 @@ public class InvestmentService {
     private final UserRepository userRepository;
     private final AccountRepository accountRepository;
     private final AccountBalanceService accountBalanceService;
-
-    public InvestmentService(
-            InvestmentRepository investmentRepository,
-            InvestmentTransactionRepository investmentTransactionRepository,
-            UserRepository userRepository,
-            AccountRepository accountRepository,
-            AccountBalanceService accountBalanceService
-    ) {
-        this.investmentRepository = investmentRepository;
-        this.investmentTransactionRepository =
-                investmentTransactionRepository;
-        this.userRepository = userRepository;
-        this.accountRepository = accountRepository;
-        this.accountBalanceService = accountBalanceService;
-    }
 
     @Transactional
     public InvestmentResponse createInvestment(
@@ -77,25 +65,27 @@ public class InvestmentService {
             UUID userId,
             UUID investmentId
     ) {
-        return toResponse(getInvestmentEntity(userId, investmentId));
+        return toResponse(
+                getInvestmentEntity(userId, investmentId)
+        );
     }
 
     @Transactional
     public InvestmentResponse updateInvestment(
-            UUID userId,
-            UUID investmentId,
-            UpdateInvestmentRequest request
+           UUID userId,
+           UUID investmentId,
+           UpdateInvestmentRequest request
     ) {
         Investment investment =
                 getInvestmentEntity(userId, investmentId);
 
-        investment.update(
-                request.name(),
-                request.type(),
+        investment.updateCurrentValue(
                 request.currentValue()
         );
 
-        return toResponse(investmentRepository.save(investment));
+        return toResponse(
+                investmentRepository.save(investment)
+        );
     }
 
     @Transactional
@@ -106,12 +96,9 @@ public class InvestmentService {
         Investment investment =
                 getInvestmentEntity(userId, investmentId);
 
-        /*
-         * Investment history should not disappear accidentally.
-         * Once an investment has BUY/SELL records, keep the history.
-         */
         if (investmentTransactionRepository
                 .existsByInvestment_Id(investmentId)) {
+
             throw new IllegalArgumentException(
                     "Investment with transaction history cannot be deleted"
             );
@@ -134,19 +121,16 @@ public class InvestmentService {
 
         validateAmount(request.amount());
 
-        /*
-         * BUY moves money out of the selected account.
-         * The account balance service includes investment transactions,
-         * so the balance check reflects previous investment purchases.
-         */
         BigDecimal currentBalance =
                 accountBalanceService.calculateBalance(account.getId());
 
         if (request.amount().compareTo(currentBalance) > 0) {
-            throw new IllegalArgumentException("Insufficient funds");
+            throw new IllegalArgumentException(
+                    "Insufficient funds"
+            );
         }
 
-        validateQuantityAndPrice(
+        validateTransactionAmount(
                 request.quantity(),
                 request.pricePerUnit(),
                 request.amount()
@@ -190,28 +174,40 @@ public class InvestmentService {
         Account account =
                 getAccountForUser(userId, request.accountId());
 
-        validateAmount(request.amount());
+        BigDecimal currentQuantity =
+                investment.getQuantity() == null
+                        ? BigDecimal.ZERO
+                        : investment.getQuantity();
 
-        if (request.quantity() != null) {
-            if (investment.getQuantity() == null) {
-                throw new IllegalArgumentException(
-                        "Investment does not have tracked quantity"
-                );
-            }
-
-            if (request.quantity()
-                    .compareTo(investment.getQuantity()) > 0) {
-                throw new IllegalArgumentException(
-                        "Cannot sell more units than currently owned"
-                );
-            }
+        if (request.quantity().compareTo(currentQuantity) > 0) {
+            throw new IllegalArgumentException(
+                    "Cannot sell more units than currently owned"
+            );
         }
 
-        validateQuantityAndPrice(
-                request.quantity(),
-                request.pricePerUnit(),
-                request.amount()
-        );
+        if (currentQuantity.signum() <= 0) {
+            throw new IllegalArgumentException(
+                    "Investment has no units available to sell"
+            );
+        }
+
+        BigDecimal currentValue =
+                investment.getCurrentValue();
+
+        BigDecimal currentPricePerUnit =
+                currentValue.divide(
+                        currentQuantity,
+                        4,
+                        RoundingMode.HALF_UP
+                );
+
+        BigDecimal amount =
+                request.quantity()
+                        .multiply(currentPricePerUnit)
+                        .setScale(
+                                4,
+                                RoundingMode.HALF_UP
+                        );
 
         InvestmentTransaction transaction =
                 new InvestmentTransaction(
@@ -219,15 +215,14 @@ public class InvestmentService {
                         investment,
                         account,
                         InvestmentTransactionType.SELL,
-                        request.amount(),
+                        amount,
                         request.quantity(),
-                        request.pricePerUnit(),
+                        currentPricePerUnit,
                         request.occurredAt()
                 );
 
         updateInvestmentAfterSell(
                 investment,
-                request.amount(),
                 request.quantity()
         );
 
@@ -262,17 +257,22 @@ public class InvestmentService {
         BigDecimal currentValue = BigDecimal.ZERO;
 
         for (Investment investment : investments) {
+
             List<InvestmentTransaction> transactions =
                     investmentTransactionRepository
                             .findByInvestment_Id(investment.getId());
 
             for (InvestmentTransaction transaction : transactions) {
+
                 if (transaction.getType()
                         == InvestmentTransactionType.BUY) {
+
                     totalInvested = totalInvested.add(
                             transaction.getAmount()
                     );
+
                 } else {
+
                     totalInvested = totalInvested.subtract(
                             transaction.getAmount()
                     );
@@ -315,10 +315,6 @@ public class InvestmentService {
             BigDecimal amount,
             BigDecimal quantity
     ) {
-        if (quantity == null) {
-            return;
-        }
-
         BigDecimal oldQuantity =
                 investment.getQuantity() == null
                         ? BigDecimal.ZERO
@@ -349,42 +345,31 @@ public class InvestmentService {
 
     private void updateInvestmentAfterSell(
             Investment investment,
-            BigDecimal amount,
             BigDecimal quantity
     ) {
-        if (quantity == null || investment.getQuantity() == null) {
-            return;
-        }
+        BigDecimal currentQuantity =
+                investment.getQuantity() == null
+                        ? BigDecimal.ZERO
+                        : investment.getQuantity();
 
         BigDecimal remainingQuantity =
-                investment.getQuantity().subtract(quantity);
-
-        if (remainingQuantity.signum() == 0) {
-            investment.setQuantity(BigDecimal.ZERO);
-            return;
-        }
+                currentQuantity.subtract(quantity);
 
         investment.setQuantity(remainingQuantity);
     }
 
-    private void validateQuantityAndPrice(
+    private void validateTransactionAmount(
             BigDecimal quantity,
             BigDecimal pricePerUnit,
             BigDecimal amount
     ) {
-        /*
-         * Quantity and price are optional in V1.
-         * If both are supplied, make sure they agree with the amount.
-         */
-        if (quantity != null && pricePerUnit != null) {
-            BigDecimal calculatedAmount =
-                    quantity.multiply(pricePerUnit);
+        BigDecimal calculatedAmount =
+                quantity.multiply(pricePerUnit);
 
-            if (calculatedAmount.compareTo(amount) != 0) {
-                throw new IllegalArgumentException(
-                        "Quantity multiplied by price per unit must equal amount"
-                );
-            }
+        if (calculatedAmount.compareTo(amount) != 0) {
+            throw new IllegalArgumentException(
+                    "Quantity multiplied by price per unit must equal amount"
+            );
         }
     }
 
@@ -402,10 +387,35 @@ public class InvestmentService {
         }
     }
 
+    private BigDecimal calculateInvestedAmount(
+            UUID investmentId
+    ) {
+        return investmentTransactionRepository
+                .findByInvestment_Id(investmentId)
+                .stream()
+                .map(transaction -> {
+
+                    if (transaction.getType()
+                            == InvestmentTransactionType.BUY) {
+
+                        return transaction.getAmount();
+                    }
+
+                    return transaction.getAmount().negate();
+                })
+                .reduce(
+                        BigDecimal.ZERO,
+                        BigDecimal::add
+                );
+    }
+
     private User getUser(UUID userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() ->
-                        new ResourceNotFoundException("User not found"));
+                        new ResourceNotFoundException(
+                                "User not found"
+                        )
+                );
     }
 
     private Account getAccountForUser(
@@ -416,7 +426,10 @@ public class InvestmentService {
                 accountId,
                 userId
         ).orElseThrow(() ->
-                new ResourceNotFoundException("Account not found"));
+                new ResourceNotFoundException(
+                        "Account not found"
+                )
+        );
     }
 
     private Investment getInvestmentEntity(
@@ -424,22 +437,32 @@ public class InvestmentService {
             UUID investmentId
     ) {
         return investmentRepository
-                .findByIdAndUser_Id(investmentId, userId)
+                .findByIdAndUser_Id(
+                        investmentId,
+                        userId
+                )
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "Investment not found"
-                        ));
+                        )
+                );
     }
 
     private InvestmentResponse toResponse(
             Investment investment
     ) {
+        BigDecimal investedAmount =
+                calculateInvestedAmount(
+                        investment.getId()
+                );
+
         return new InvestmentResponse(
                 investment.getId(),
                 investment.getName(),
                 investment.getType(),
                 investment.getQuantity(),
                 investment.getAveragePurchasePrice(),
+                investedAmount,
                 investment.getCurrentValue(),
                 investment.getCreatedAt(),
                 investment.getUpdatedAt()
