@@ -6,6 +6,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
+import com.kartik.finance_tracker.accounts.Account;
 import com.kartik.finance_tracker.users.User;
 
 import jakarta.persistence.Column;
@@ -18,6 +19,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -33,18 +35,21 @@ public class Goal {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    // Every goal belongs to exactly one user.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "account_id", nullable = false, unique = true)
+    private Account account;
+
     @Column(nullable = false, length = 255)
     private String name;
 
-    @Column(name = "target_amount", nullable = false, precision = 19, scale = 2)
+    @Column(name = "target_amount", nullable = false, precision = 19, scale = 4)
     private BigDecimal targetAmount;
 
-    @Column(name = "current_amount", nullable = false, precision = 19, scale = 2)
+    @Column(name = "current_amount", nullable = false, precision = 19, scale = 4)
     private BigDecimal currentAmount;
 
     @Column(name = "target_date", nullable = false)
@@ -77,6 +82,10 @@ public class Goal {
         this.updatedAt = this.createdAt;
     }
 
+    public void setAccount(Account account) {
+        this.account = account;
+    }
+
     public void update(
             String name,
             BigDecimal targetAmount,
@@ -85,21 +94,33 @@ public class Goal {
         this.name = name;
         this.targetAmount = targetAmount;
         this.targetDate = targetDate;
-
-        // Reaching the new target completes the goal automatically.
-        if (this.currentAmount.compareTo(targetAmount) == 0) {
-            this.status = GoalStatus.COMPLETED;
-        }
-
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
-    public void addContribution(BigDecimal contribution) {
-        this.currentAmount = this.currentAmount.add(contribution);
+    /**
+     * Synchronizes persisted goal progress and completion status with the
+     * actual balance of the associated Goal Account.
+     */
+    public void synchronizeBalance(BigDecimal balance) {
+        if (balance == null || balance.signum() < 0) {
+            throw new IllegalArgumentException(
+                    "Goal account balance cannot be negative"
+            );
+        }
 
-        // Reaching the target marks the goal as completed.
-        if (this.currentAmount.compareTo(this.targetAmount) == 0) {
-            this.status = GoalStatus.COMPLETED;
+        if (balance.compareTo(targetAmount) > 0) {
+            throw new IllegalArgumentException(
+                    "Goal account balance cannot exceed the goal target"
+            );
+        }
+
+        this.currentAmount = balance;
+
+        if (this.status != GoalStatus.CANCELLED
+                && this.status != GoalStatus.PAUSED) {
+            this.status = balance.compareTo(targetAmount) == 0
+                    ? GoalStatus.COMPLETED
+                    : GoalStatus.ACTIVE;
         }
 
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
@@ -123,7 +144,10 @@ public class Goal {
             );
         }
 
-        this.status = GoalStatus.ACTIVE;
+        this.status = this.currentAmount.compareTo(this.targetAmount) == 0
+                ? GoalStatus.COMPLETED
+                : GoalStatus.ACTIVE;
+
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
@@ -137,5 +161,4 @@ public class Goal {
         this.status = GoalStatus.CANCELLED;
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
-
 }

@@ -3,6 +3,7 @@ export type GoalStatus = "ACTIVE" | "COMPLETED" | "PAUSED" | "CANCELLED";
 export type Goal = {
   id: string;
   name: string;
+  accountId: string;
   targetAmount: number;
   currentAmount: number;
   targetDate: string;

@@ -55,6 +55,7 @@ public class RecurringTransactionService {
 
         validateTransactionType(request.type());
         validateAmountScale(request.amount());
+        validateNextOccurrence(request.nextOccurrence());
 
         RecurringTransaction recurringTransaction =
                 new RecurringTransaction(
@@ -107,6 +108,7 @@ public class RecurringTransactionService {
 
         validateTransactionType(request.type());
         validateAmountScale(request.amount());
+        validateNextOccurrence(request.nextOccurrence());
 
         /*
          * Editing a recurring rule only changes future generated
@@ -131,72 +133,59 @@ public class RecurringTransactionService {
     }
 
     @Transactional
-    public RecurringTransactionResponse pauseRecurringTransaction(
-            UUID userId,
-            UUID recurringTransactionId,
-            Integer duration,
-            boolean untilResume
-    ) {
+    public RecurringTransactionResponse skipNextOccurrence(
+                UUID userId,
+                UUID recurringTransactionId
+        ) {
         RecurringTransaction recurringTransaction =
-                getRecurringTransaction(
-                        userId,
-                        recurringTransactionId
+                getRecurringTransaction(userId, recurringTransactionId);
+
+        if (recurringTransaction.isSkipNextOccurrence()) {
+                throw new IllegalArgumentException(
+                        "The next occurrence is already marked to be skipped"
                 );
-
-        /*
-         * Exactly one pause mode must be selected:
-         *
-         * duration=2
-         * OR
-         * untilResume=true
-         */
-        if (duration != null && untilResume) {
-            throw new IllegalArgumentException(
-                    "Choose either a pause duration or pause until manually resumed"
-            );
         }
 
-        if (duration == null && !untilResume) {
-            throw new IllegalArgumentException(
-                    "Pause duration is required"
-            );
+        if (!recurringTransaction.isActive()) {
+                throw new IllegalArgumentException(
+                        "Cannot skip an occurrence while the recurring transaction is inactive"
+                );
         }
 
-        if (duration != null && duration < 1) {
-            throw new IllegalArgumentException(
-                    "Pause duration must be at least 1"
-            );
+        if (!recurringTransaction.getNextOccurrence().isAfter(LocalDate.now())) {
+                throw new IllegalArgumentException(
+                        "Cannot skip an occurrence that is already due"
+                );
         }
 
-        if (untilResume) {
-            recurringTransaction.pauseUntilResumed();
-        } else {
-            recurringTransaction.pauseFor(duration);
-        }
+        recurringTransaction.skipNextOccurrence();
 
         return toResponse(
                 recurringTransactionRepository.save(recurringTransaction)
         );
-    }
+   }
 
-    @Transactional
-    public RecurringTransactionResponse resumeRecurringTransaction(
-            UUID userId,
-            UUID recurringTransactionId
-    ) {
+   @Transactional
+   public RecurringTransactionResponse undoSkipNextOccurrence(
+                UUID userId,
+                UUID recurringTransactionId
+        ) {
         RecurringTransaction recurringTransaction =
-                getRecurringTransaction(
-                        userId,
-                        recurringTransactionId
-                );
+                getRecurringTransaction(userId, recurringTransactionId);
 
-        /*
-         * Resume from the next future occurrence.
-         *
-         * If the original next occurrence is already in the past,
-         * missed occurrences are skipped.
-         */
-        recurringTransaction.resume(LocalDate.now());
+        if (!recurringTransaction.isSkipNextOccurrence()) {
+                throw new IllegalArgumentException(
+                        "The next occurrence is not marked to be skipped"
+                );
+        }
+
+        if (!recurringTransaction.getNextOccurrence().isAfter(LocalDate.now())) {
+                throw new IllegalArgumentException(
+                        "Cannot undo a skip once the occurrence is due"
+                );
+        }
+
+        recurringTransaction.undoSkipNextOccurrence();
 
         return toResponse(
                 recurringTransactionRepository.save(recurringTransaction)
@@ -300,21 +289,40 @@ public class RecurringTransactionService {
         }
     }
 
+    private void validateNextOccurrence(LocalDate nextOccurrence) {
+        if (nextOccurrence == null) {
+                throw new IllegalArgumentException(
+                        "Payment date is required"
+                );
+        }
+
+        if (nextOccurrence.isBefore(LocalDate.now())) {
+                throw new IllegalArgumentException(
+                        "Payment date cannot be in the past"
+                );
+        }
+    }
+
+
     private RecurringTransactionResponse toResponse(
             RecurringTransaction recurringTransaction
     ) {
         return new RecurringTransactionResponse(
                 recurringTransaction.getId(),
                 recurringTransaction.getAccount().getId(),
-                recurringTransaction.getCategory().getId(),
-                recurringTransaction.getCategory().getName(),
+                recurringTransaction.getCategory() != null
+                        ? recurringTransaction.getCategory().getId()
+                        : null,
+                recurringTransaction.getCategory() != null
+                        ? recurringTransaction.getCategory().getName()
+                        : null,
                 recurringTransaction.getType(),
                 recurringTransaction.getAmount(),
                 recurringTransaction.getDescription(),
                 recurringTransaction.getFrequencyUnit(),
                 recurringTransaction.getFrequencyInterval(),
                 recurringTransaction.getNextOccurrence(),
-                recurringTransaction.getPausedUntil(),
+                recurringTransaction.isSkipNextOccurrence(),
                 recurringTransaction.isActive(),
                 recurringTransaction.getCreatedAt(),
                 recurringTransaction.getUpdatedAt()

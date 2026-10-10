@@ -1,39 +1,34 @@
 package com.kartik.finance_tracker.budgets;
 
-import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface BudgetRepository extends JpaRepository<Budget, UUID> {
 
+    List<Budget> findByUser_IdAndYearAndMonth(
+            UUID userId,
+            int year,
+            int month
+    );
+
     List<Budget> findByUser_Id(UUID userId);
 
-    List<Budget> findByUser_IdAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+    List<Budget> findByUser_IdAndCategory_IdOrderByYearDescMonthDesc(
             UUID userId,
-            LocalDate date,
-            LocalDate sameDate
+            UUID categoryId
     );
 
-    boolean existsByUser_IdAndCategory_IdAndPeriodAndStartDateAndEndDate(
-            UUID userId,
-            UUID categoryId,
-            BudgetPeriod period,
-            LocalDate startDate,
-            LocalDate endDate
-    );
-
-    boolean existsByUser_IdAndCategory_IdAndPeriodAndStartDateAndEndDateAndIdNot(
+    boolean existsByUser_IdAndCategory_IdAndYearAndMonth(
             UUID userId,
             UUID categoryId,
-            BudgetPeriod period,
-            LocalDate startDate,
-            LocalDate endDate,
-            UUID budgetId
+            int year,
+            int month
     );
 
-    java.util.Optional<Budget> findByIdAndUser_Id(
+    Optional<Budget> findByIdAndUser_Id(
             UUID budgetId,
             UUID userId
     );

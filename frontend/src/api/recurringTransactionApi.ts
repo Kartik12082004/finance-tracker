@@ -38,26 +38,22 @@ export async function updateRecurringTransaction(
   );
 }
 
-export async function pauseRecurringTransaction(
+export async function skipNextRecurringTransaction(
   recurringTransactionId: string,
-  duration: number | null,
-  untilResume: boolean,
 ): Promise<RecurringTransaction> {
-  const params = untilResume ? "untilResume=true" : `duration=${duration}`;
-
   return apiRequest<RecurringTransaction>(
-    `http://localhost:8080/api/recurring-transactions/${recurringTransactionId}/pause?${params}`,
+    `http://localhost:8080/api/recurring-transactions/${recurringTransactionId}/skip-next`,
     {
       method: "PATCH",
     },
   );
 }
 
-export async function resumeRecurringTransaction(
+export async function undoSkipNextRecurringTransaction(
   recurringTransactionId: string,
 ): Promise<RecurringTransaction> {
   return apiRequest<RecurringTransaction>(
-    `http://localhost:8080/api/recurring-transactions/${recurringTransactionId}/resume`,
+    `http://localhost:8080/api/recurring-transactions/${recurringTransactionId}/undo-skip`,
     {
       method: "PATCH",
     },

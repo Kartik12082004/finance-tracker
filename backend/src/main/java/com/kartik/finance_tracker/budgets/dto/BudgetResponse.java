@@ -1,11 +1,8 @@
 package com.kartik.finance_tracker.budgets.dto;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
-
-import com.kartik.finance_tracker.budgets.BudgetPeriod;
 
 public record BudgetResponse(
         UUID id,
@@ -15,9 +12,8 @@ public record BudgetResponse(
         BigDecimal spentAmount,
         BigDecimal remainingAmount,
         BigDecimal spendingPercentage,
-        BudgetPeriod period,
-        LocalDate startDate,
-        LocalDate endDate,
+        int year,
+        int month,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {

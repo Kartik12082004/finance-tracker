@@ -10,6 +10,7 @@ import com.kartik.finance_tracker.goals.GoalStatus;
 public record GoalResponse(
         UUID id,
         String name,
+        UUID accountId,
         BigDecimal targetAmount,
         BigDecimal currentAmount,
         LocalDate targetDate,

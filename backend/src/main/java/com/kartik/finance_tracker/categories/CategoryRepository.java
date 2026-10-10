@@ -6,5 +6,10 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CategoryRepository extends JpaRepository<Category, UUID> {
+
     List<Category> findAllByUser_Id(UUID userId);
+
+    boolean existsByParent_Id(UUID parentId);
+
+    List<Category> findAllByParent_Id(UUID parentId);
 }

@@ -1,3 +1,4 @@
+
 package com.kartik.finance_tracker.recurring.dto;
 
 import java.math.BigDecimal;
@@ -19,7 +20,7 @@ public record RecurringTransactionResponse(
         RecurringFrequencyUnit frequencyUnit,
         int frequencyInterval,
         LocalDate nextOccurrence,
-        LocalDate pausedUntil,
+        boolean skipNextOccurrence,
         boolean active,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt

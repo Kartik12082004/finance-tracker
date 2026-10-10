@@ -1,19 +1,24 @@
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
+
 import {
   createRecurringTransaction,
   deleteRecurringTransaction,
   getRecurringTransactions,
-  pauseRecurringTransaction,
-  resumeRecurringTransaction,
+  skipNextRecurringTransaction,
+  undoSkipNextRecurringTransaction,
+  updateRecurringTransaction,
 } from "../api/recurringTransactionApi";
+
 import { getAccounts } from "../api/accountApi";
 import { getCategories } from "../api/categoryApi";
+
 import type { Account } from "../types/account";
 import type { Category } from "../types/category";
 import type {
   CreateRecurringTransactionRequest,
-  RecurringFrequencyUnit,
   RecurringTransaction,
+  UpdateRecurringTransactionRequest,
 } from "../types/recurringTransaction";
 import type { TransactionType } from "../types/transaction";
 
@@ -26,13 +31,26 @@ function formatDate(date: string): string {
 }
 
 function formatFrequency(
-  unit: RecurringFrequencyUnit,
+  unit: RecurringTransaction["frequencyUnit"],
   interval: number,
 ): string {
+  if (unit === "MONTH" && interval === 1) {
+    return "Monthly";
+  }
+
   const unitLabel =
     interval === 1 ? unit.toLowerCase() : `${unit.toLowerCase()}s`;
 
   return `Every ${interval} ${unitLabel}`;
+}
+
+function getToday(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 export default function RecurringTransactions() {
@@ -43,8 +61,9 @@ export default function RecurringTransactions() {
   const [categories, setCategories] = useState<Category[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
-  const [isCreating, setIsCreating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [accountId, setAccountId] = useState("");
@@ -52,12 +71,11 @@ export default function RecurringTransactions() {
   const [type, setType] = useState<TransactionType>("EXPENSE");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [frequencyUnit, setFrequencyUnit] =
-    useState<RecurringFrequencyUnit>("MONTH");
-  const [frequencyInterval, setFrequencyInterval] = useState("1");
-  const [nextOccurrence, setNextOccurrence] = useState("");
+  const [paymentDate, setPaymentDate] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadData() {
       try {
         setIsLoading(true);
@@ -73,30 +91,62 @@ export default function RecurringTransactions() {
           getCategories(),
         ]);
 
+        if (cancelled) {
+          return;
+        }
+
         setRecurringTransactions(recurringTransactionsResponse);
         setAccounts(accountsResponse);
         setCategories(categoriesResponse);
       } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load recurring transactions.",
-        );
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load recurring transactions.",
+          );
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     void loadData();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  async function handleCreateRecurringTransaction(
-    event: React.FormEvent<HTMLFormElement>,
-  ) {
+  function resetForm() {
+    setEditingId(null);
+    setAccountId("");
+    setCategoryId("");
+    setType("EXPENSE");
+    setAmount("");
+    setDescription("");
+    setPaymentDate("");
+  }
+
+  function handleEdit(recurringTransaction: RecurringTransaction) {
+    setEditingId(recurringTransaction.id);
+    setAccountId(recurringTransaction.accountId);
+    setCategoryId(recurringTransaction.categoryId);
+    setType(recurringTransaction.type);
+    setAmount(String(recurringTransaction.amount));
+    setDescription(recurringTransaction.description ?? "");
+    setPaymentDate(recurringTransaction.nextOccurrence);
+    setError(null);
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const parsedAmount = Number(amount);
-    const parsedFrequencyInterval = Number(frequencyInterval);
 
     if (!accountId) {
       setError("Account is required.");
@@ -108,21 +158,22 @@ export default function RecurringTransactions() {
       return;
     }
 
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      setError("Amount must be greater than zero.");
-      return;
-    }
-
     if (
-      !Number.isInteger(parsedFrequencyInterval) ||
-      parsedFrequencyInterval < 1
+      !Number.isFinite(parsedAmount) ||
+      parsedAmount <= 0 ||
+      !/^\d+(\.\d{1,2})?$/.test(amount.trim())
     ) {
-      setError("Frequency interval must be at least 1.");
+      setError("Amount must be positive and have at most two decimal places.");
       return;
     }
 
-    if (!nextOccurrence) {
-      setError("Next occurrence is required.");
+    if (!paymentDate) {
+      setError("First payment date is required.");
+      return;
+    }
+
+    if (paymentDate < getToday()) {
+      setError("Payment date cannot be in the past.");
       return;
     }
 
@@ -132,81 +183,60 @@ export default function RecurringTransactions() {
       type,
       amount: parsedAmount,
       description: description.trim(),
-      frequencyUnit,
-      frequencyInterval: parsedFrequencyInterval,
-      nextOccurrence,
+      frequencyUnit: "MONTH",
+      frequencyInterval: 1,
+      nextOccurrence: paymentDate,
     };
 
     try {
-      setIsCreating(true);
+      setIsSaving(true);
       setError(null);
 
-      const createdRecurringTransaction =
-        await createRecurringTransaction(request);
+      if (editingId) {
+        const updateRequest: UpdateRecurringTransactionRequest = request;
 
-      setRecurringTransactions((current) => [
-        ...current,
-        createdRecurringTransaction,
-      ]);
+        const updatedRecurringTransaction = await updateRecurringTransaction(
+          editingId,
+          updateRequest,
+        );
 
-      setAccountId("");
-      setCategoryId("");
-      setType("EXPENSE");
-      setAmount("");
-      setDescription("");
-      setFrequencyUnit("MONTH");
-      setFrequencyInterval("1");
-      setNextOccurrence("");
+        setRecurringTransactions((current) =>
+          current.map((transaction) =>
+            transaction.id === editingId
+              ? updatedRecurringTransaction
+              : transaction,
+          ),
+        );
+      } else {
+        const createdRecurringTransaction =
+          await createRecurringTransaction(request);
+
+        setRecurringTransactions((current) => [
+          ...current,
+          createdRecurringTransaction,
+        ]);
+      }
+
+      resetForm();
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to create recurring transaction.",
+          : editingId
+            ? "Failed to update recurring transaction."
+            : "Failed to create recurring transaction.",
       );
     } finally {
-      setIsCreating(false);
+      setIsSaving(false);
     }
   }
 
-  async function handlePause(
-    recurringTransaction: RecurringTransaction,
-    duration: number | null,
-    untilResume: boolean,
-  ) {
-    try {
-      setProcessingId(recurringTransaction.id);
-      setError(null);
-
-      const updatedRecurringTransaction = await pauseRecurringTransaction(
-        recurringTransaction.id,
-        duration,
-        untilResume,
-      );
-
-      setRecurringTransactions((current) =>
-        current.map((transaction) =>
-          transaction.id === recurringTransaction.id
-            ? updatedRecurringTransaction
-            : transaction,
-        ),
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to pause recurring transaction.",
-      );
-    } finally {
-      setProcessingId(null);
-    }
-  }
-
-  async function handleResume(recurringTransactionId: string) {
+  async function handleSkipNext(recurringTransactionId: string) {
     try {
       setProcessingId(recurringTransactionId);
       setError(null);
 
-      const updatedRecurringTransaction = await resumeRecurringTransaction(
+      const updatedRecurringTransaction = await skipNextRecurringTransaction(
         recurringTransactionId,
       );
 
@@ -221,7 +251,33 @@ export default function RecurringTransactions() {
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to resume recurring transaction.",
+          : "Failed to skip the next recurring transaction.",
+      );
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  async function handleUndoSkip(recurringTransactionId: string) {
+    try {
+      setProcessingId(recurringTransactionId);
+      setError(null);
+
+      const updatedRecurringTransaction =
+        await undoSkipNextRecurringTransaction(recurringTransactionId);
+
+      setRecurringTransactions((current) =>
+        current.map((transaction) =>
+          transaction.id === recurringTransactionId
+            ? updatedRecurringTransaction
+            : transaction,
+        ),
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to undo the scheduled skip.",
       );
     } finally {
       setProcessingId(null);
@@ -248,6 +304,10 @@ export default function RecurringTransactions() {
           (transaction) => transaction.id !== recurringTransactionId,
         ),
       );
+
+      if (editingId === recurringTransactionId) {
+        resetForm();
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -259,42 +319,18 @@ export default function RecurringTransactions() {
     }
   }
 
-  function handleTemporaryPause(recurringTransaction: RecurringTransaction) {
-    const rawDuration = window.prompt(
-      `Pause for how many ${recurringTransaction.frequencyUnit.toLowerCase()}${
-        recurringTransaction.frequencyUnit === "WEEK" ||
-        recurringTransaction.frequencyUnit === "MONTH" ||
-        recurringTransaction.frequencyUnit === "YEAR"
-          ? "s"
-          : ""
-      }?`,
-      "1",
-    );
-
-    if (rawDuration === null) {
-      return;
-    }
-
-    const duration = Number(rawDuration);
-
-    if (!Number.isInteger(duration) || duration < 1) {
-      setError("Pause duration must be a whole number of at least 1.");
-      return;
-    }
-
-    void handlePause(recurringTransaction, duration, false);
-  }
-
-  const expenseCategories = categories.filter(
-    (category) => category.type === "EXPENSE",
+  const availableAccounts = accounts.filter(
+    (account) =>
+      account.type !== "GOAL" ||
+      account.id ===
+        recurringTransactions.find(
+          (transaction) => transaction.id === editingId,
+        )?.accountId,
   );
 
-  const incomeCategories = categories.filter(
-    (category) => category.type === "INCOME",
+  const availableCategories = categories.filter(
+    (category) => category.type === type,
   );
-
-  const availableCategories =
-    type === "EXPENSE" ? expenseCategories : incomeCategories;
 
   if (isLoading) {
     return (
@@ -309,23 +345,29 @@ export default function RecurringTransactions() {
     <section>
       <h2>Recurring Transactions</h2>
 
-      {error && <p>{error}</p>}
+      {error && <p role="alert">{error}</p>}
 
       <section>
-        <h3>Create Recurring Transaction</h3>
+        <h3>
+          {editingId ? "Edit Recurring Payment" : "Create Recurring Payment"}
+        </h3>
 
-        <form onSubmit={handleCreateRecurringTransaction}>
+        <p>
+          Set a monthly payment and choose its first payment date. The recurring
+          schedule will use that calendar day for future months.
+        </p>
+
+        <form onSubmit={handleSave}>
           <div>
             <label htmlFor="recurring-account">Account</label>
-
             <select
               id="recurring-account"
               value={accountId}
               onChange={(event) => setAccountId(event.target.value)}
+              required
             >
               <option value="">Select account</option>
-
-              {accounts.map((account) => (
+              {availableAccounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.name}
                 </option>
@@ -335,16 +377,15 @@ export default function RecurringTransactions() {
 
           <div>
             <label htmlFor="recurring-type">Type</label>
-
             <select
               id="recurring-type"
               value={type}
               onChange={(event) => {
                 const nextType = event.target.value as TransactionType;
-
                 setType(nextType);
                 setCategoryId("");
               }}
+              required
             >
               <option value="EXPENSE">Expense</option>
               <option value="INCOME">Income</option>
@@ -353,15 +394,14 @@ export default function RecurringTransactions() {
 
           <div>
             <label htmlFor="recurring-category">Category</label>
-
             <select
               id="recurring-category"
               value={categoryId}
               onChange={(event) => setCategoryId(event.target.value)}
+              required
             >
               <option value="">Select category</option>
-
-              {availableCategories.map((category) => (
+              {availableCategories.map((category: Category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
                 </option>
@@ -371,7 +411,6 @@ export default function RecurringTransactions() {
 
           <div>
             <label htmlFor="recurring-amount">Amount</label>
-
             <input
               id="recurring-amount"
               type="number"
@@ -379,12 +418,12 @@ export default function RecurringTransactions() {
               step="0.01"
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
+              required
             />
           </div>
 
           <div>
             <label htmlFor="recurring-description">Description</label>
-
             <input
               id="recurring-description"
               type="text"
@@ -395,77 +434,58 @@ export default function RecurringTransactions() {
           </div>
 
           <div>
-            <label htmlFor="recurring-frequency-unit">Frequency</label>
-
-            <select
-              id="recurring-frequency-unit"
-              value={frequencyUnit}
-              onChange={(event) =>
-                setFrequencyUnit(event.target.value as RecurringFrequencyUnit)
-              }
-            >
-              <option value="WEEK">Week</option>
-              <option value="MONTH">Month</option>
-              <option value="YEAR">Year</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="recurring-frequency-interval">Every</label>
-
+            <label htmlFor="recurring-payment-date">
+              {editingId ? "Next payment date" : "First payment date"}
+            </label>
             <input
-              id="recurring-frequency-interval"
-              type="number"
-              min="1"
-              step="1"
-              value={frequencyInterval}
-              onChange={(event) => setFrequencyInterval(event.target.value)}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="recurring-next-occurrence">Next occurrence</label>
-
-            <input
-              id="recurring-next-occurrence"
+              id="recurring-payment-date"
               type="date"
-              value={nextOccurrence}
-              onChange={(event) => setNextOccurrence(event.target.value)}
+              min={getToday()}
+              value={paymentDate}
+              onChange={(event) => setPaymentDate(event.target.value)}
+              required
             />
           </div>
 
-          <button type="submit" disabled={isCreating}>
-            {isCreating ? "Creating..." : "Create Recurring Transaction"}
+          <p>Frequency: Monthly</p>
+
+          <button type="submit" disabled={isSaving}>
+            {isSaving
+              ? "Saving..."
+              : editingId
+                ? "Save Changes"
+                : "Create Recurring Payment"}
           </button>
+
+          {editingId && (
+            <button type="button" onClick={resetForm} disabled={isSaving}>
+              Cancel Edit
+            </button>
+          )}
         </form>
       </section>
 
       <section>
-        <h3>Your Recurring Transactions</h3>
+        <h3>Your Recurring Payments</h3>
 
         {recurringTransactions.length === 0 ? (
-          <p>No recurring transactions found.</p>
+          <p>No recurring payments found.</p>
         ) : (
           <ul>
             {recurringTransactions.map((recurringTransaction) => {
               const isProcessing = processingId === recurringTransaction.id;
 
-              const isTemporarilyPaused =
-                recurringTransaction.active &&
-                recurringTransaction.pausedUntil !== null;
-
-              const isIndefinitelyPaused =
-                !recurringTransaction.active &&
-                recurringTransaction.pausedUntil === null;
-
               return (
                 <li key={recurringTransaction.id}>
                   <article>
-                    <h4>{recurringTransaction.categoryName}</h4>
+                    <h4>
+                      {recurringTransaction.description?.trim() ||
+                        recurringTransaction.categoryName}
+                    </h4>
 
                     <p>Type: {recurringTransaction.type}</p>
-
                     <p>Amount: ₹{formatAmount(recurringTransaction.amount)}</p>
+                    <p>Category: {recurringTransaction.categoryName}</p>
 
                     <p>
                       Account:{" "}
@@ -474,10 +494,6 @@ export default function RecurringTransactions() {
                           account.id === recurringTransaction.accountId,
                       )?.name ?? recurringTransaction.accountId}
                     </p>
-
-                    {recurringTransaction.description && (
-                      <p>Description: {recurringTransaction.description}</p>
-                    )}
 
                     <p>
                       Frequency:{" "}
@@ -488,72 +504,59 @@ export default function RecurringTransactions() {
                     </p>
 
                     <p>
-                      Next occurrence:{" "}
+                      Next payment:{" "}
                       {formatDate(recurringTransaction.nextOccurrence)}
                     </p>
 
                     <p>
                       Status:{" "}
-                      {recurringTransaction.active
-                        ? recurringTransaction.pausedUntil
-                          ? `Paused until ${formatDate(
-                              recurringTransaction.pausedUntil,
-                            )}`
-                          : "Active"
-                        : "Paused until manually resumed"}
+                      {!recurringTransaction.active
+                        ? "Inactive"
+                        : recurringTransaction.skipNextOccurrence
+                          ? "Active — next occurrence marked to skip"
+                          : "Active"}
                     </p>
 
-                    <div>
-                      {recurringTransaction.active && !isTemporarilyPaused && (
-                        <>
-                          <button
-                            type="button"
-                            disabled={isProcessing}
-                            onClick={() =>
-                              handleTemporaryPause(recurringTransaction)
-                            }
-                          >
-                            {isProcessing
-                              ? "Processing..."
-                              : "Pause Temporarily"}
-                          </button>
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(recurringTransaction)}
+                      disabled={isProcessing || isSaving}
+                    >
+                      Edit
+                    </button>
 
-                          <button
-                            type="button"
-                            disabled={isProcessing}
-                            onClick={() =>
-                              void handlePause(recurringTransaction, null, true)
-                            }
-                          >
-                            {isProcessing
-                              ? "Processing..."
-                              : "Pause Until I Resume"}
-                          </button>
-                        </>
-                      )}
-
-                      {(isTemporarilyPaused || isIndefinitelyPaused) && (
+                    {recurringTransaction.active &&
+                      (recurringTransaction.skipNextOccurrence ? (
                         <button
                           type="button"
-                          disabled={isProcessing}
                           onClick={() =>
-                            void handleResume(recurringTransaction.id)
+                            void handleUndoSkip(recurringTransaction.id)
                           }
+                          disabled={isProcessing}
                         >
-                          {isProcessing ? "Processing..." : "Resume"}
+                          {isProcessing ? "Processing..." : "Undo Skip"}
                         </button>
-                      )}
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleSkipNext(recurringTransaction.id)
+                          }
+                          disabled={isProcessing}
+                        >
+                          {isProcessing
+                            ? "Processing..."
+                            : "Skip Next Transaction"}
+                        </button>
+                      ))}
 
-                      <button
-                        type="button"
-                        disabled={isProcessing}
-                        onClick={() =>
-                          void handleDelete(recurringTransaction.id)
-                        }
-                      >
-                        {isProcessing ? "Processing..." : "Delete"}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(recurringTransaction.id)}
+                      disabled={isProcessing}
+                    >
+                      Delete
+                    </button>
                   </article>
                 </li>
               );

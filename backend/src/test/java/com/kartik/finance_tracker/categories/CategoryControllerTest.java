@@ -2,10 +2,13 @@ package com.kartik.finance_tracker.categories;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -18,6 +21,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import com.kartik.finance_tracker.categories.dto.UpdateCategoryRequest;
 import com.kartik.finance_tracker.security.CurrentUserService;
 import com.kartik.finance_tracker.users.User;
 
@@ -33,7 +37,10 @@ public class CategoryControllerTest {
         currentUserService = mock(CurrentUserService.class);
 
         CategoryController categoryController =
-                new CategoryController(categoryService, currentUserService);
+                new CategoryController(
+                        categoryService,
+                        currentUserService
+                );
 
         mockMvc = MockMvcBuilders
                 .standaloneSetup(categoryController)
@@ -67,7 +74,6 @@ public class CategoryControllerTest {
                 any(Boolean.class)
         )).thenReturn(category);
 
-        // isDefault is controlled by the backend and is not accepted from clients.
         mockMvc.perform(post("/api/categories")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -84,7 +90,8 @@ public class CategoryControllerTest {
     }
 
     @Test
-    void createCategory_shouldReturnCreatedChildCategory() throws Exception {
+    void createCategory_shouldReturnCreatedChildCategory()
+            throws Exception {
         UUID userId = UUID.randomUUID();
 
         when(currentUserService.getCurrentUserId())
@@ -112,7 +119,6 @@ public class CategoryControllerTest {
                 false
         );
 
-        // The backend decides whether a category is a default category.
         when(categoryService.createCategory(
                 any(UUID.class),
                 any(String.class),
@@ -133,18 +139,14 @@ public class CategoryControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.name").value("Groceries"))
                 .andExpect(jsonPath("$.type").value("EXPENSE"))
-                .andExpect(jsonPath("$.parentId").value(parent.getId().toString()))
+                .andExpect(jsonPath("$.parentId")
+                        .value(parent.getId().toString()))
                 .andExpect(jsonPath("$.isDefault").value(false));
     }
 
     @Test
-    void createCategory_shouldReturnBadRequestWhenNameIsMissing() throws Exception {
-        UUID userId = UUID.randomUUID();
-
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
-
-        // The API must reject a request without a category name.
+    void createCategory_shouldReturnBadRequestWhenNameIsMissing()
+            throws Exception {
         mockMvc.perform(post("/api/categories")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -154,18 +156,12 @@ public class CategoryControllerTest {
                         """))
                 .andExpect(status().isBadRequest());
 
-        // Invalid requests must not reach the service layer.
         verifyNoInteractions(categoryService);
     }
 
     @Test
-    void createCategory_shouldReturnBadRequestWhenTypeIsMissing() throws Exception {
-        UUID userId = UUID.randomUUID();
-
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
-
-        // The API must reject a request without a category type.
+    void createCategory_shouldReturnBadRequestWhenTypeIsMissing()
+            throws Exception {
         mockMvc.perform(post("/api/categories")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -175,20 +171,14 @@ public class CategoryControllerTest {
                         """))
                 .andExpect(status().isBadRequest());
 
-        // Invalid requests must not reach the service layer.
         verifyNoInteractions(categoryService);
     }
 
     @Test
-    void createCategory_shouldReturnBadRequestWhenNameIsTooLong() throws Exception {
-        UUID userId = UUID.randomUUID();
-
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
-
+    void createCategory_shouldReturnBadRequestWhenNameIsTooLong()
+            throws Exception {
         String longName = "a".repeat(101);
 
-        // Category names are limited to 100 characters.
         mockMvc.perform(post("/api/categories")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -199,12 +189,12 @@ public class CategoryControllerTest {
                         """.formatted(longName)))
                 .andExpect(status().isBadRequest());
 
-        // Invalid requests must not reach the service layer.
         verifyNoInteractions(categoryService);
     }
 
     @Test
-    void getCategories_shouldReturnUserCategories() throws Exception {
+    void getCategories_shouldReturnUserCategories()
+            throws Exception {
         UUID userId = UUID.randomUUID();
 
         when(currentUserService.getCurrentUserId())
@@ -233,9 +223,13 @@ public class CategoryControllerTest {
         );
 
         when(categoryService.getCategories(userId))
-                .thenReturn(List.of(foodCategory, groceriesCategory));
+                .thenReturn(
+                        List.of(
+                                foodCategory,
+                                groceriesCategory
+                        )
+                );
 
-        // The API should return all categories belonging to the authenticated user.
         mockMvc.perform(get("/api/categories"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
@@ -243,11 +237,14 @@ public class CategoryControllerTest {
                 .andExpect(jsonPath("$[0].type").value("EXPENSE"))
                 .andExpect(jsonPath("$[0].parentId").doesNotExist())
                 .andExpect(jsonPath("$[0].isDefault").value(true))
-                .andExpect(jsonPath("$[1].name").value("Groceries"))
-                .andExpect(jsonPath("$[1].type").value("EXPENSE"))
+                .andExpect(jsonPath("$[1].name")
+                        .value("Groceries"))
+                .andExpect(jsonPath("$[1].type")
+                        .value("EXPENSE"))
                 .andExpect(jsonPath("$[1].parentId")
                         .value(foodCategory.getId().toString()))
-                .andExpect(jsonPath("$[1].isDefault").value(false));
+                .andExpect(jsonPath("$[1].isDefault")
+                        .value(false));
     }
 
     @Test
@@ -261,9 +258,114 @@ public class CategoryControllerTest {
         when(categoryService.getCategories(userId))
                 .thenReturn(List.of());
 
-        // A user with no categories should receive an empty array rather than null.
         mockMvc.perform(get("/api/categories"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void updateCategory_shouldReturnUpdatedCategory()
+            throws Exception {
+        UUID userId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
+
+        User user = new User(
+                "kartik@example.com",
+                "hashed-password",
+                "Kartik"
+        );
+
+        Category category = new Category(
+                user,
+                "Dining",
+                CategoryType.EXPENSE,
+                null,
+                false
+        );
+
+        when(categoryService.updateCategory(
+                any(UUID.class),
+                any(UUID.class),
+                any(UpdateCategoryRequest.class)
+        )).thenReturn(category);
+
+        mockMvc.perform(put(
+                "/api/categories/{categoryId}",
+                category.getId()
+        )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                            "name": "Dining"
+                        }
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Dining"))
+                .andExpect(jsonPath("$.type").value("EXPENSE"))
+                .andExpect(jsonPath("$.parentId").doesNotExist())
+                .andExpect(jsonPath("$.isDefault").value(false));
+    }
+
+    @Test
+    void updateCategory_shouldReturnBadRequestWhenNameIsMissing()
+            throws Exception {
+        UUID categoryId = UUID.randomUUID();
+
+        mockMvc.perform(put(
+                "/api/categories/{categoryId}",
+                categoryId
+        )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                            "parentId": null
+                        }
+                        """))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void updateCategory_shouldReturnBadRequestWhenNameIsTooLong()
+            throws Exception {
+        UUID categoryId = UUID.randomUUID();
+
+        String longName = "a".repeat(101);
+
+        mockMvc.perform(put(
+                "/api/categories/{categoryId}",
+                categoryId
+        )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                            "name": "%s"
+                        }
+                        """.formatted(longName)))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(categoryService);
+    }
+
+    @Test
+    void deleteCategory_shouldReturnNoContent()
+            throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(userId);
+
+        mockMvc.perform(delete(
+                "/api/categories/{categoryId}",
+                categoryId
+        ))
+                .andExpect(status().isNoContent());
+
+        verify(categoryService)
+                .deleteCategory(userId, categoryId);
     }
 }

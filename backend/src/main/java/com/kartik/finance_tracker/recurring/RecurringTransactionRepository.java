@@ -20,16 +20,12 @@ public interface RecurringTransactionRepository
     );
 
     @Query("""
-            SELECT r
-            FROM RecurringTransaction r
-            WHERE r.active = true
-              AND r.nextOccurrence <= :date
-              AND (
-                    r.pausedUntil IS NULL
-                    OR r.pausedUntil <= :date
-                  )
-            """)
-    List<RecurringTransaction> findDueRecurringTransactions(
-            @Param("date") LocalDate date
+        SELECT r FROM RecurringTransaction r
+        WHERE r.active = true
+        AND r.nextOccurrence <= :date
+        """)
+        List<RecurringTransaction> findDueRecurringTransactions(
+                @Param("date") LocalDate date
     );
+
 }

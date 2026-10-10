@@ -56,6 +56,34 @@ async function refreshAccessToken(
   return refreshPromise;
 }
 
+async function getApiErrorMessage(response: Response): Promise<string> {
+  const fallback = `API request failed (${response.status}).`;
+
+  try {
+    const body: unknown = await response.json();
+
+    if (typeof body === "string" && body.trim()) {
+      return body;
+    }
+
+    if (typeof body === "object" && body !== null) {
+      const errorBody = body as Record<string, unknown>;
+
+      for (const key of ["message", "detail", "error"]) {
+        const value = errorBody[key];
+
+        if (typeof value === "string" && value.trim()) {
+          return value;
+        }
+      }
+    }
+  } catch {
+    // The response may be empty or not contain JSON.
+  }
+
+  return fallback;
+}
+
 export async function apiRequest<T>(
   url: string,
   options: RequestInit = {},
@@ -70,7 +98,7 @@ export async function apiRequest<T>(
 
   if (response.status !== 401) {
     if (!response.ok) {
-      throw new Error("API request failed.");
+      throw new Error(await getApiErrorMessage(response));
     }
 
     if (response.status === 204) {
@@ -93,7 +121,7 @@ export async function apiRequest<T>(
   response = await sendRequest(url, options, newAccessToken);
 
   if (!response.ok) {
-    throw new Error("API request failed.");
+    throw new Error(await getApiErrorMessage(response));
   }
 
   if (response.status === 204) {

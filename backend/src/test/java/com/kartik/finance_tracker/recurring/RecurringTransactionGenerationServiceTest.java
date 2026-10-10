@@ -1,5 +1,8 @@
+
 package com.kartik.finance_tracker.recurring;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import java.math.BigDecimal;
@@ -18,8 +21,6 @@ import com.kartik.finance_tracker.transactions.TransactionService;
 import com.kartik.finance_tracker.transactions.TransactionType;
 import com.kartik.finance_tracker.users.User;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 class RecurringTransactionGenerationServiceTest {
 
     private RecurringTransactionRepository recurringTransactionRepository;
@@ -34,7 +35,6 @@ class RecurringTransactionGenerationServiceTest {
     void setUp() {
         recurringTransactionRepository =
                 mock(RecurringTransactionRepository.class);
-
         transactionService = mock(TransactionService.class);
 
         generationService = new RecurringTransactionGenerationService(
@@ -52,16 +52,13 @@ class RecurringTransactionGenerationServiceTest {
         LocalDate occurrenceDate = LocalDate.of(2026, 9, 22);
 
         RecurringTransaction recurringTransaction =
-                new RecurringTransaction(
-                        user,
-                        account,
-                        category,
-                        TransactionType.EXPENSE,
-                        new BigDecimal("649.00"),
-                        "Netflix",
+                createRecurringTransaction(
+                        occurrenceDate,
                         RecurringFrequencyUnit.MONTH,
                         1,
-                        occurrenceDate
+                        TransactionType.EXPENSE,
+                        new BigDecimal("649.00"),
+                        "Netflix"
                 );
 
         when(recurringTransactionRepository.findDueRecurringTransactions(
@@ -84,35 +81,35 @@ class RecurringTransactionGenerationServiceTest {
                 occurredAtCaptor.capture()
         );
 
-        /*
-         * The generated transaction must represent the recurring
-         * rule's actual occurrence date.
-         */
         assertEquals(
                 occurrenceDate.atStartOfDay(ZoneOffset.UTC).toOffsetDateTime(),
                 occurredAtCaptor.getValue()
         );
 
-        verify(recurringTransactionRepository)
-                .save(recurringTransaction);
+        assertEquals(
+                LocalDate.of(2026, 10, 22),
+                recurringTransaction.getNextOccurrence()
+        );
+        assertFalse(recurringTransaction.isSkipNextOccurrence());
+
+        verify(recurringTransactionRepository).save(recurringTransaction);
     }
 
     @Test
-    void shouldAdvanceMonthlyOccurrence() {
+    void shouldSkipMarkedOccurrenceWithoutCreatingTransaction() {
         LocalDate occurrenceDate = LocalDate.of(2026, 9, 22);
 
         RecurringTransaction recurringTransaction =
-                new RecurringTransaction(
-                        user,
-                        account,
-                        category,
-                        TransactionType.EXPENSE,
-                        new BigDecimal("649.00"),
-                        "Netflix",
+                createRecurringTransaction(
+                        occurrenceDate,
                         RecurringFrequencyUnit.MONTH,
                         1,
-                        occurrenceDate
+                        TransactionType.EXPENSE,
+                        new BigDecimal("649.00"),
+                        "Netflix"
                 );
+
+        recurringTransaction.skipNextOccurrence();
 
         when(recurringTransactionRepository.findDueRecurringTransactions(
                 occurrenceDate
@@ -120,10 +117,94 @@ class RecurringTransactionGenerationServiceTest {
 
         generationService.generateDueTransactions(occurrenceDate);
 
+        verify(transactionService, never()).createTransaction(
+                any(),
+                any(),
+                isNull(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
+        );
+
         assertEquals(
                 LocalDate.of(2026, 10, 22),
                 recurringTransaction.getNextOccurrence()
         );
+        assertFalse(recurringTransaction.isSkipNextOccurrence());
+
+        verify(recurringTransactionRepository).save(recurringTransaction);
+    }
+
+    @Test
+    void shouldGenerateFollowingOccurrenceNormallyAfterSkippingOne() {
+        LocalDate firstOccurrence = LocalDate.of(2026, 9, 22);
+        LocalDate secondOccurrence = LocalDate.of(2026, 10, 22);
+
+        RecurringTransaction recurringTransaction =
+                createRecurringTransaction(
+                        firstOccurrence,
+                        RecurringFrequencyUnit.MONTH,
+                        1,
+                        TransactionType.EXPENSE,
+                        new BigDecimal("649.00"),
+                        "Netflix"
+                );
+
+        recurringTransaction.skipNextOccurrence();
+
+        when(recurringTransactionRepository.findDueRecurringTransactions(
+                firstOccurrence
+        )).thenReturn(List.of(recurringTransaction));
+
+        // The first occurrence is skipped.
+        generationService.generateDueTransactions(firstOccurrence);
+
+        verify(transactionService, never()).createTransaction(
+                any(),
+                any(),
+                isNull(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
+        );
+
+        assertEquals(
+                secondOccurrence,
+                recurringTransaction.getNextOccurrence()
+        );
+        assertFalse(recurringTransaction.isSkipNextOccurrence());
+
+        // The following occurrence should generate normally.
+        when(recurringTransactionRepository.findDueRecurringTransactions(
+                secondOccurrence
+        )).thenReturn(List.of(recurringTransaction));
+
+        generationService.generateDueTransactions(secondOccurrence);
+
+        verify(transactionService).createTransaction(
+                any(),
+                any(),
+                isNull(),
+                any(),
+                eq(TransactionType.EXPENSE),
+                eq(new BigDecimal("649.00")),
+                eq("Netflix"),
+                eq(secondOccurrence.atStartOfDay(ZoneOffset.UTC)
+                        .toOffsetDateTime())
+        );
+
+        assertEquals(
+                LocalDate.of(2026, 11, 22),
+                recurringTransaction.getNextOccurrence()
+        );
+        assertFalse(recurringTransaction.isSkipNextOccurrence());
+
+        verify(recurringTransactionRepository, times(2))
+                .save(recurringTransaction);
     }
 
     @Test
@@ -131,21 +212,15 @@ class RecurringTransactionGenerationServiceTest {
         LocalDate januaryOccurrence = LocalDate.of(2026, 1, 31);
 
         RecurringTransaction recurringTransaction =
-                new RecurringTransaction(
-                        user,
-                        account,
-                        category,
-                        TransactionType.EXPENSE,
-                        new BigDecimal("649.00"),
-                        "Netflix",
+                createRecurringTransaction(
+                        januaryOccurrence,
                         RecurringFrequencyUnit.MONTH,
                         1,
-                        januaryOccurrence
+                        TransactionType.EXPENSE,
+                        new BigDecimal("649.00"),
+                        "Netflix"
                 );
 
-        /*
-         * January 31 -> February 28 because February has no 31st.
-         */
         when(recurringTransactionRepository.findDueRecurringTransactions(
                 januaryOccurrence
         )).thenReturn(List.of(recurringTransaction));
@@ -157,11 +232,6 @@ class RecurringTransactionGenerationServiceTest {
                 recurringTransaction.getNextOccurrence()
         );
 
-        /*
-         * The original day-of-month anchor must still be 31.
-         * Therefore the following occurrence must return to March 31
-         * rather than permanently drifting to March 28.
-         */
         when(recurringTransactionRepository.findDueRecurringTransactions(
                 LocalDate.of(2026, 2, 28)
         )).thenReturn(List.of(recurringTransaction));
@@ -174,6 +244,7 @@ class RecurringTransactionGenerationServiceTest {
                 LocalDate.of(2026, 3, 31),
                 recurringTransaction.getNextOccurrence()
         );
+        assertEquals(31, recurringTransaction.getAnchorDay());
     }
 
     @Test
@@ -181,16 +252,13 @@ class RecurringTransactionGenerationServiceTest {
         LocalDate occurrenceDate = LocalDate.of(2026, 9, 22);
 
         RecurringTransaction recurringTransaction =
-                new RecurringTransaction(
-                        user,
-                        account,
-                        category,
-                        TransactionType.INCOME,
-                        new BigDecimal("30000.00"),
-                        "Salary",
+                createRecurringTransaction(
+                        occurrenceDate,
                         RecurringFrequencyUnit.MONTH,
                         3,
-                        occurrenceDate
+                        TransactionType.INCOME,
+                        new BigDecimal("30000.00"),
+                        "Salary"
                 );
 
         when(recurringTransactionRepository.findDueRecurringTransactions(
@@ -199,9 +267,6 @@ class RecurringTransactionGenerationServiceTest {
 
         generationService.generateDueTransactions(occurrenceDate);
 
-        /*
-         * MONTH × 3 means the next occurrence is three months later.
-         */
         assertEquals(
                 LocalDate.of(2026, 12, 22),
                 recurringTransaction.getNextOccurrence()
@@ -213,29 +278,23 @@ class RecurringTransactionGenerationServiceTest {
         LocalDate occurrenceDate = LocalDate.of(2026, 9, 22);
 
         RecurringTransaction netflix =
-                new RecurringTransaction(
-                        user,
-                        account,
-                        category,
-                        TransactionType.EXPENSE,
-                        new BigDecimal("649.00"),
-                        "Netflix",
+                createRecurringTransaction(
+                        occurrenceDate,
                         RecurringFrequencyUnit.MONTH,
                         1,
-                        occurrenceDate
+                        TransactionType.EXPENSE,
+                        new BigDecimal("649.00"),
+                        "Netflix"
                 );
 
         RecurringTransaction salary =
-                new RecurringTransaction(
-                        user,
-                        account,
-                        category,
-                        TransactionType.INCOME,
-                        new BigDecimal("30000.00"),
-                        "Salary",
+                createRecurringTransaction(
+                        occurrenceDate,
                         RecurringFrequencyUnit.MONTH,
                         1,
-                        occurrenceDate
+                        TransactionType.INCOME,
+                        new BigDecimal("30000.00"),
+                        "Salary"
                 );
 
         when(recurringTransactionRepository.findDueRecurringTransactions(
@@ -244,10 +303,6 @@ class RecurringTransactionGenerationServiceTest {
 
         generationService.generateDueTransactions(occurrenceDate);
 
-        /*
-         * Every due recurring rule should generate its own normal
-         * transaction.
-         */
         verify(transactionService, times(2)).createTransaction(
                 any(),
                 any(),
@@ -268,16 +323,13 @@ class RecurringTransactionGenerationServiceTest {
         LocalDate occurrenceDate = LocalDate.of(2026, 9, 22);
 
         RecurringTransaction recurringTransaction =
-                new RecurringTransaction(
-                        user,
-                        account,
-                        category,
-                        TransactionType.EXPENSE,
-                        new BigDecimal("649.00"),
-                        "Netflix",
+                createRecurringTransaction(
+                        occurrenceDate,
                         RecurringFrequencyUnit.MONTH,
                         1,
-                        occurrenceDate
+                        TransactionType.EXPENSE,
+                        new BigDecimal("649.00"),
+                        "Netflix"
                 );
 
         when(recurringTransactionRepository.findDueRecurringTransactions(
@@ -302,11 +354,6 @@ class RecurringTransactionGenerationServiceTest {
                 () -> generationService.generateDueTransactions(occurrenceDate)
         );
 
-        /*
-         * The occurrence must remain unchanged when transaction
-         * creation fails. Otherwise the failed transaction could
-         * be permanently skipped.
-         */
         assertEquals(
                 occurrenceDate,
                 recurringTransaction.getNextOccurrence()
@@ -314,5 +361,26 @@ class RecurringTransactionGenerationServiceTest {
 
         verify(recurringTransactionRepository, never())
                 .save(recurringTransaction);
+    }
+
+    private RecurringTransaction createRecurringTransaction(
+            LocalDate occurrenceDate,
+            RecurringFrequencyUnit frequencyUnit,
+            int frequencyInterval,
+            TransactionType type,
+            BigDecimal amount,
+            String description
+    ) {
+        return new RecurringTransaction(
+                user,
+                account,
+                category,
+                type,
+                amount,
+                description,
+                frequencyUnit,
+                frequencyInterval,
+                occurrenceDate
+        );
     }
 }

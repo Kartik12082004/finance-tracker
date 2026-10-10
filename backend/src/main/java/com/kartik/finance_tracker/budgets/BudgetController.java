@@ -1,10 +1,8 @@
 package com.kartik.finance_tracker.budgets;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -41,12 +39,16 @@ public class BudgetController {
 
     @PostMapping
     public ResponseEntity<BudgetResponse> createBudget(
+            @RequestParam int year,
+            @RequestParam int month,
             @Valid @RequestBody CreateBudgetRequest request
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
         BudgetResponse response = budgetService.createBudget(
                 userId,
+                year,
+                month,
                 request
         );
 
@@ -57,45 +59,40 @@ public class BudgetController {
 
     @GetMapping
     public ResponseEntity<List<BudgetResponse>> getBudgets(
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-            LocalDate date
+            @RequestParam int year,
+            @RequestParam int month
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
-        List<BudgetResponse> budgets = date == null
-                ? budgetService.getBudgets(userId)
-                : budgetService.getBudgetsForDate(userId, date);
+        List<BudgetResponse> budgets =
+                budgetService.getBudgetsForMonth(userId, year, month);
 
         return ResponseEntity.ok(budgets);
     }
 
-    @PutMapping("/{id}")
+    @PutMapping("/{budgetId}")
     public ResponseEntity<BudgetResponse> updateBudget(
-            @PathVariable UUID id,
+            @PathVariable UUID budgetId,
             @Valid @RequestBody UpdateBudgetRequest request
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
-        return ResponseEntity.ok(
-                budgetService.updateBudget(
-                        userId,
-                        id,
-                        request
-                )
+        BudgetResponse response = budgetService.updateBudget(
+                userId,
+                budgetId,
+                request
         );
+
+        return ResponseEntity.ok(response);
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/{budgetId}")
     public ResponseEntity<Void> deleteBudget(
-            @PathVariable UUID id
+            @PathVariable UUID budgetId
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
-        budgetService.deleteBudget(
-                userId,
-                id
-        );
+        budgetService.deleteBudget(userId, budgetId);
 
         return ResponseEntity.noContent().build();
     }

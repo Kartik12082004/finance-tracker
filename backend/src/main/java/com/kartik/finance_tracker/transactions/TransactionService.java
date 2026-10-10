@@ -58,13 +58,60 @@ public class TransactionService {
             String description,
             OffsetDateTime occurredAt
     ) {
+        return createTransactionInternal(
+                userId,
+                accountId,
+                destinationAccountId,
+                categoryId,
+                type,
+                amount,
+                description,
+                occurredAt,
+                false
+        );
+    }
 
-        // Verify that the transaction belongs to an existing user.
+    /**
+     * Creates a contribution transfer through the goal-management flow.
+     * Generic transfers cannot use a Goal Account as their destination.
+     */
+    @Transactional
+    public Transaction createGoalContribution(
+            UUID userId,
+            UUID sourceAccountId,
+            UUID goalAccountId,
+            BigDecimal amount,
+            String description,
+            OffsetDateTime occurredAt
+    ) {
+        return createTransactionInternal(
+                userId,
+                sourceAccountId,
+                goalAccountId,
+                null,
+                TransactionType.TRANSFER,
+                amount,
+                description,
+                occurredAt,
+                true
+        );
+    }
+
+    private Transaction createTransactionInternal(
+            UUID userId,
+            UUID accountId,
+            UUID destinationAccountId,
+            UUID categoryId,
+            TransactionType type,
+            BigDecimal amount,
+            String description,
+            OffsetDateTime occurredAt,
+            boolean allowGoalDestination
+    ) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("User not found"));
 
-        // Load and verify ownership of the account where the transaction originates.
         Account account = accountRepository.findById(accountId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Account not found"));
@@ -76,7 +123,6 @@ public class TransactionService {
         Account destinationAccount = null;
 
         if (destinationAccountId != null) {
-            // Transfers have a second account that receives the money.
             destinationAccount = accountRepository.findById(destinationAccountId)
                     .orElseThrow(() ->
                             new ResourceNotFoundException(
@@ -88,10 +134,31 @@ public class TransactionService {
             }
         }
 
+        if (destinationAccount != null) {
+            if (destinationAccount.getType() == AccountType.GOAL
+                    && !allowGoalDestination) {
+                throw new IllegalArgumentException(
+                        "Goal accounts can only receive contributions through goal management");
+            }
+
+            if (allowGoalDestination
+                    && destinationAccount.getType() != AccountType.GOAL) {
+                throw new IllegalArgumentException(
+                        "Goal contribution destination must be a goal account");
+            }
+        } else if (allowGoalDestination) {
+            throw new IllegalArgumentException(
+                    "Goal contribution requires a goal account destination");
+        }
+
+        if (allowGoalDestination && account.getType() == AccountType.GOAL) {
+            throw new IllegalArgumentException(
+                    "A goal account cannot be the source of its own contribution");
+        }
+
         Category category = null;
 
         if (categoryId != null) {
-            // Income and expense transactions use categories for classification.
             category = categoryRepository.findById(categoryId)
                     .orElseThrow(() ->
                             new ResourceNotFoundException("Category not found"));
@@ -101,9 +168,9 @@ public class TransactionService {
             }
         }
 
-        // Transaction amounts must be positive and fit the database precision.
         if (amount == null || amount.signum() <= 0) {
-            throw new IllegalArgumentException("Amount must be greater than zero");
+            throw new IllegalArgumentException(
+                    "Amount must be greater than zero");
         }
 
         if (amount.scale() > 2) {
@@ -120,11 +187,6 @@ public class TransactionService {
         }
 
         if (type == TransactionType.TRANSFER) {
-
-            /*
-             * Transfers move money between two accounts.
-             * They therefore cannot have a category.
-             */
             if (destinationAccount == null) {
                 throw new IllegalArgumentException(
                         "Transfer requires a destination account");
@@ -140,30 +202,29 @@ public class TransactionService {
                         "Source and destination accounts must be different");
             }
 
-            // Phase 1 does not support foreign-exchange transfers.
             if (!account.getCurrency().equals(destinationAccount.getCurrency())) {
                 throw new IllegalArgumentException(
                         "Source and destination accounts must use the same currency");
             }
 
-            /*
-             * Credit-card-to-account transfers would represent a cash advance,
-             * which is outside the transaction model supported in Phase 1.
-             */
             if (account.getType() == AccountType.CREDIT_CARD) {
                 throw new IllegalArgumentException(
                         "Credit card cannot be the source of a transfer");
             }
-
         } else {
+            if (account.getType() == AccountType.GOAL) {
+                throw new IllegalArgumentException(
+                        "Goal accounts only support transfers");
+            }
 
-            /*
-             * Income and expense transactions represent money entering or
-             * leaving an account, so they require a matching category.
-             */
             if (category == null) {
                 throw new IllegalArgumentException(
                         "Category is required for income and expense");
+            }
+
+            if (!category.getChildren().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Parent categories cannot be used for transactions");
             }
 
             if (destinationAccount != null) {
@@ -184,7 +245,6 @@ public class TransactionService {
             }
         }
 
-        // Validate that the transaction is allowed based on the current balance.
         validateBalance(account, destinationAccount, type, amount);
 
         Transaction transaction = new Transaction(
@@ -201,10 +261,6 @@ public class TransactionService {
         Transaction savedTransaction =
                 transactionRepository.save(transaction);
 
-        /*
-         * A transaction changes the monthly analytics summary for the month
-         * in which the transaction occurred.
-         */
         evictMonthlySummaryCache(userId, occurredAt);
 
         return savedTransaction;
@@ -212,18 +268,17 @@ public class TransactionService {
 
     @Transactional
     public Transaction voidTransaction(UUID userId, UUID transactionId) {
-
         Transaction transaction = transactionRepository.findById(transactionId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Transaction not found"));
 
-        // A user must never be able to modify another user's transaction.
         if (!transaction.getUser().getId().equals(userId)) {
             throw new ResourceNotFoundException("Transaction not found");
         }
 
         if (transaction.getStatus() == TransactionStatus.VOIDED) {
-            throw new IllegalArgumentException("Transaction is already voided");
+            throw new IllegalArgumentException(
+                    "Transaction is already voided");
         }
 
         transaction.setStatus(TransactionStatus.VOIDED);
@@ -232,22 +287,13 @@ public class TransactionService {
         Transaction savedTransaction =
                 transactionRepository.save(transaction);
 
-        /*
-         * Voiding changes the financial effect of the transaction, so the
-         * affected month's analytics cache must be invalidated.
-         */
-        evictMonthlySummaryCache(
-                userId,
-                transaction.getOccurredAt()
-        );
+        evictMonthlySummaryCache(userId, transaction.getOccurredAt());
 
         return savedTransaction;
     }
 
     @Transactional(readOnly = true)
     public List<Transaction> getTransactions(UUID userId) {
-
-        // Only return transactions owned by the requested user.
         if (!userRepository.existsById(userId)) {
             throw new ResourceNotFoundException("User not found");
         }
@@ -255,12 +301,6 @@ public class TransactionService {
         return transactionRepository.findAllByUser_Id(userId);
     }
 
-    /*
-     * Evict the cached monthly summary affected by a transaction.
-     *
-     * The key must exactly match the key generated by AnalyticsService:
-     * userId:year:month
-     */
     private void evictMonthlySummaryCache(
             UUID userId,
             OffsetDateTime occurredAt
@@ -268,12 +308,11 @@ public class TransactionService {
         Cache cache = cacheManager.getCache("monthlySummary");
 
         if (cache != null) {
-            String cacheKey =
-                    userId
-                            + ":"
-                            + occurredAt.getYear()
-                            + ":"
-                            + occurredAt.getMonthValue();
+            String cacheKey = userId
+                    + ":"
+                    + occurredAt.getYear()
+                    + ":"
+                    + occurredAt.getMonthValue();
 
             cache.evictIfPresent(cacheKey);
         }
@@ -285,8 +324,6 @@ public class TransactionService {
             TransactionType type,
             BigDecimal amount
     ) {
-
-        // Income increases the balance, so it does not require a funds check.
         if (type == TransactionType.INCOME) {
             return;
         }
@@ -295,20 +332,10 @@ public class TransactionService {
                 accountBalanceService.calculateBalance(account.getId());
 
         if (type == TransactionType.EXPENSE) {
-
-            /*
-             * Credit-card balances represent debt:
-             *  0      = nothing owed
-             *  +5000  = 5000 owed
-             *
-             * Therefore, credit-card spending is allowed even when
-             * the current balance is zero.
-             */
             if (account.getType() == AccountType.CREDIT_CARD) {
                 return;
             }
 
-            // Normal asset accounts cannot be allowed to go below zero.
             if (amount.compareTo(currentBalance) > 0) {
                 throw new IllegalArgumentException("Insufficient funds");
             }
@@ -317,18 +344,11 @@ public class TransactionService {
         }
 
         if (type == TransactionType.TRANSFER) {
-
-            // The source account must have enough money for the transfer.
             if (amount.compareTo(currentBalance) > 0) {
                 throw new IllegalArgumentException("Insufficient funds");
             }
 
             if (destinationAccount.getType() == AccountType.CREDIT_CARD) {
-
-                /*
-                 * Paying a credit card reduces its outstanding debt.
-                 * We do not allow payments larger than the amount currently owed.
-                 */
                 BigDecimal currentCardBalance =
                         accountBalanceService.calculateBalance(
                                 destinationAccount.getId());

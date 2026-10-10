@@ -1,3 +1,4 @@
+
 package com.kartik.finance_tracker.recurring;
 
 import java.util.List;
@@ -13,7 +14,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.kartik.finance_tracker.recurring.dto.CreateRecurringTransactionRequest;
@@ -80,32 +80,28 @@ public class RecurringTransactionController {
         );
     }
 
-    @PatchMapping("/{id}/pause")
-    public ResponseEntity<RecurringTransactionResponse> pauseRecurringTransaction(
-            @PathVariable UUID id,
-            @RequestParam(required = false) Integer duration,
-            @RequestParam(defaultValue = "false") boolean untilResume
-    ) {
-        UUID userId = currentUserService.getCurrentUserId();
-
-        return ResponseEntity.ok(
-                recurringTransactionService.pauseRecurringTransaction(
-                        userId,
-                        id,
-                        duration,
-                        untilResume
-                )
-        );
-    }
-
-    @PatchMapping("/{id}/resume")
-    public ResponseEntity<RecurringTransactionResponse> resumeRecurringTransaction(
+    @PatchMapping("/{id}/skip-next")
+    public ResponseEntity<RecurringTransactionResponse> skipNextOccurrence(
             @PathVariable UUID id
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
         return ResponseEntity.ok(
-                recurringTransactionService.resumeRecurringTransaction(
+                recurringTransactionService.skipNextOccurrence(
+                        userId,
+                        id
+                )
+        );
+    }
+
+    @PatchMapping("/{id}/undo-skip")
+    public ResponseEntity<RecurringTransactionResponse> undoSkipNextOccurrence(
+            @PathVariable UUID id
+    ) {
+        UUID userId = currentUserService.getCurrentUserId();
+
+        return ResponseEntity.ok(
+                recurringTransactionService.undoSkipNextOccurrence(
                         userId,
                         id
                 )

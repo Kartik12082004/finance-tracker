@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import "./App.css";
 import AccountList from "./components/AccountList";
 import AddAccountForm from "./components/AddAccountForm";
 import AddTransactionForm from "./components/AddTransactionForm";
@@ -6,38 +7,102 @@ import Dashboard from "./components/Dashboard";
 import LoginForm from "./components/LoginForm";
 import RegisterForm from "./components/RegisterForm";
 import TransactionList from "./components/TransactionList";
+import Goals from "./components/Goals";
+import Budgets from "./components/Budgets";
+import RecurringTransactions from "./components/RecurringTransactions";
+import Investments from "./components/Investments";
+import Categories from "./components/Categories";
+
 import type { Account, AccountType } from "./types/account";
 import type { AuthResponse } from "./types/auth";
 import type { Category } from "./types/category";
 import type { Transaction } from "./types/transaction";
 import type { AccountBalance } from "./api/analyticsApi";
+
 import {
   createAccount,
   deleteAccount,
   getAccounts,
   updateAccount,
 } from "./api/accountApi";
+
 import { getAccountBalances } from "./api/analyticsApi";
 import { getCategories } from "./api/categoryApi";
 import { getTransactions, voidTransaction } from "./api/transactionApi";
+
 import {
   clearAuthSession,
   getAuthSession,
   saveAuthSession,
 } from "./auth/authStorage";
-import Goals from "./components/Goals";
-import Budgets from "./components/Budgets";
-import RecurringTransactions from "./components/RecurringTransactions";
-import Investments from "./components/Investments";
+
+type Section =
+  | "dashboard"
+  | "accounts"
+  | "transactions"
+  | "budgets"
+  | "goals"
+  | "recurring"
+  | "investments"
+  | "categories";
+
+const navigationItems: {
+  id: Section;
+  label: string;
+  icon: string;
+}[] = [
+  {
+    id: "dashboard",
+    label: "Dashboard",
+    icon: "⌂",
+  },
+  {
+    id: "accounts",
+    label: "Accounts",
+    icon: "▣",
+  },
+  {
+    id: "transactions",
+    label: "Transactions",
+    icon: "↕",
+  },
+  {
+    id: "categories",
+    label: "Categories",
+    icon: "≡",
+  },
+  {
+    id: "budgets",
+    label: "Budgets",
+    icon: "◫",
+  },
+  {
+    id: "goals",
+    label: "Goals",
+    icon: "◎",
+  },
+  {
+    id: "recurring",
+    label: "Recurring",
+    icon: "↻",
+  },
+  {
+    id: "investments",
+    label: "Investments",
+    icon: "↗",
+  },
+];
 
 function App() {
-  // Restore the previous authentication session when the application starts.
-  // This allows the user to remain logged in after refreshing the page.
   const [authResponse, setAuthResponse] = useState<AuthResponse | null>(() =>
     getAuthSession(),
   );
 
   const [showRegister, setShowRegister] = useState(false);
+
+  const [activeSection, setActiveSection] = useState<Section>("dashboard");
+
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountBalances, setAccountBalances] = useState<AccountBalance[]>([]);
@@ -69,8 +134,6 @@ function App() {
         setCategories(categoriesFromApi);
         setTransactions(transactionsFromApi);
       } catch {
-        // The API client clears the session when token refresh fails.
-        // We also clear React state so the UI returns to the login screen.
         clearAuthSession();
         setAuthResponse(null);
         setAccounts([]);
@@ -80,19 +143,19 @@ function App() {
       }
     }
 
-    loadFinanceData();
+    void loadFinanceData();
   }, [authResponse]);
 
   function handleLogin(response: AuthResponse) {
     saveAuthSession(response);
     setAuthResponse(response);
+    setActiveSection("dashboard");
   }
 
   function handleRegister(response: AuthResponse) {
-    // Registration already returns authenticated session tokens,
-    // so the newly registered user can enter the application immediately.
     saveAuthSession(response);
     setAuthResponse(response);
+    setActiveSection("dashboard");
   }
 
   function handleLogout() {
@@ -102,6 +165,7 @@ function App() {
     setAccountBalances([]);
     setCategories([]);
     setTransactions([]);
+    setActiveSection("dashboard");
   }
 
   async function addAccount(
@@ -121,16 +185,11 @@ function App() {
       openingBalance,
     });
 
-    // Add the backend-created account to the UI immediately.
-    // The backend remains the source of truth.
     setAccounts((currentAccounts) => [...currentAccounts, createdAccount]);
 
-    // A newly created account starts with its opening balance.
-    // Fetching balances keeps the calculated balance synchronized.
     const updatedBalances = await getAccountBalances();
     setAccountBalances(updatedBalances);
 
-    // Refresh dashboard analytics because account balances changed.
     setDashboardRefreshKey((current) => current + 1);
   }
 
@@ -150,8 +209,6 @@ function App() {
       currency,
     });
 
-    // Replace the old account with the backend's updated version.
-    // This keeps the UI synchronized with the backend response.
     setAccounts((currentAccounts) =>
       currentAccounts.map((account) =>
         account.id === accountId ? updatedAccount : account,
@@ -164,12 +221,8 @@ function App() {
       throw new Error("User is not authenticated.");
     }
 
-    // Delete from the backend first.
-    // The UI should only change after the backend confirms deletion.
     await deleteAccount(accountId);
 
-    // The backend returned successfully, so remove the account
-    // from the local React state.
     setAccounts((currentAccounts) =>
       currentAccounts.filter((account) => account.id !== accountId),
     );
@@ -177,7 +230,6 @@ function App() {
     const updatedBalances = await getAccountBalances();
     setAccountBalances(updatedBalances);
 
-    // Refresh dashboard analytics because account balances changed.
     setDashboardRefreshKey((current) => current + 1);
   }
 
@@ -190,7 +242,27 @@ function App() {
     setTransactions(transactionsFromApi);
     setAccountBalances(accountBalancesFromApi);
 
-    // Refresh dashboard analytics after a transaction is created or voided.
+    setDashboardRefreshKey((current) => current + 1);
+  }
+
+  async function refreshGoalRelatedFinanceData() {
+    const [accountsFromApi, accountBalancesFromApi, transactionsFromApi] =
+      await Promise.all([
+        getAccounts(),
+        getAccountBalances(),
+        getTransactions(),
+      ]);
+
+    setAccounts(accountsFromApi);
+    setAccountBalances(accountBalancesFromApi);
+    setTransactions(transactionsFromApi);
+    setDashboardRefreshKey((current) => current + 1);
+  }
+
+  async function refreshCategories() {
+    const categoriesFromApi = await getCategories();
+    setCategories(categoriesFromApi);
+
     setDashboardRefreshKey((current) => current + 1);
   }
 
@@ -201,6 +273,121 @@ function App() {
 
     await voidTransaction(transactionId);
     await refreshTransactions();
+  }
+
+  function handleNavigation(section: Section) {
+    setActiveSection(section);
+    setMobileNavOpen(false);
+  }
+
+  function renderPage() {
+    switch (activeSection) {
+      case "dashboard":
+        return (
+          <Dashboard refreshKey={dashboardRefreshKey} categories={categories} />
+        );
+
+      case "accounts":
+        return (
+          <div className="page-stack">
+            <section className="page-section">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Financial accounts</p>
+                  <h2>Your Accounts</h2>
+                  <p className="section-description">
+                    Manage the accounts connected to your finance tracker.
+                  </p>
+                </div>
+              </div>
+
+              <AddAccountForm onAddAccount={addAccount} />
+            </section>
+
+            <section className="page-section">
+              <AccountList
+                accounts={accounts}
+                accountBalances={accountBalances}
+                onRemoveAccount={removeAccount}
+                onUpdateAccount={updateExistingAccount}
+              />
+            </section>
+          </div>
+        );
+
+      case "transactions":
+        return (
+          <div className="page-stack">
+            <section className="page-section">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Money movement</p>
+                  <h2>Transactions</h2>
+                  <p className="section-description">
+                    Record and review your income, expenses, and transfers.
+                  </p>
+                </div>
+              </div>
+
+              <AddTransactionForm
+                accounts={accounts}
+                categories={categories}
+                onTransactionCreated={refreshTransactions}
+              />
+            </section>
+
+            <section className="page-section">
+              <TransactionList
+                transactions={transactions}
+                accounts={accounts}
+                categories={categories}
+                onVoidTransaction={handleVoidTransaction}
+              />
+            </section>
+          </div>
+        );
+
+      case "categories":
+        return (
+          <div className="page-section">
+            <Categories
+              categories={categories}
+              onCategoriesChanged={refreshCategories}
+            />
+          </div>
+        );
+
+      case "budgets":
+        return (
+          <div className="page-section">
+            <Budgets refreshKey={dashboardRefreshKey} />
+          </div>
+        );
+
+      case "goals":
+        return (
+          <div className="page-section">
+            <Goals onFinanceDataChanged={refreshGoalRelatedFinanceData} />
+          </div>
+        );
+
+      case "recurring":
+        return (
+          <div className="page-section">
+            <RecurringTransactions />
+          </div>
+        );
+
+      case "investments":
+        return (
+          <div className="page-section">
+            <Investments accounts={accounts} />
+          </div>
+        );
+
+      default:
+        return null;
+    }
   }
 
   if (authResponse === null) {
@@ -221,48 +408,114 @@ function App() {
     );
   }
 
+  const activeItem = navigationItems.find((item) => item.id === activeSection);
+
   return (
-    <>
-      <h1>Finance Tracker</h1>
+    <div className="app-shell">
+      {mobileNavOpen && (
+        <button
+          type="button"
+          className="mobile-overlay"
+          aria-label="Close navigation"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
 
-      <p>Welcome, {authResponse.name}!</p>
+      <aside className={`sidebar ${mobileNavOpen ? "sidebar-open" : ""}`}>
+        <div className="sidebar-brand">
+          <div className="brand-mark">F</div>
 
-      <button type="button" onClick={handleLogout}>
-        Logout
-      </button>
+          <div>
+            <div className="brand-name">Finance Tracker</div>
+            <div className="brand-subtitle">Personal finance</div>
+          </div>
+        </div>
 
-      <Dashboard refreshKey={dashboardRefreshKey} />
+        <nav className="sidebar-nav" aria-label="Main navigation">
+          <div className="nav-label">Workspace</div>
 
-      <Goals />
+          {navigationItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`nav-item ${
+                activeSection === item.id ? "nav-item-active" : ""
+              }`}
+              onClick={() => handleNavigation(item.id)}
+            >
+              <span className="nav-icon" aria-hidden="true">
+                {item.icon}
+              </span>
 
-      <Budgets refreshKey={dashboardRefreshKey} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
 
-      <RecurringTransactions />
+        <div className="sidebar-footer">
+          <div className="user-card">
+            <div className="user-avatar">
+              {authResponse.name?.charAt(0).toUpperCase() ?? "U"}
+            </div>
 
-      <Investments accounts={accounts} />
+            <div className="user-details">
+              <strong>{authResponse.name}</strong>
+              <span>Personal account</span>
+            </div>
+          </div>
 
-      <AddAccountForm onAddAccount={addAccount} />
+          <button
+            type="button"
+            className="logout-button"
+            onClick={handleLogout}
+          >
+            <span aria-hidden="true">↪</span>
+            Logout
+          </button>
+        </div>
+      </aside>
 
-      <AccountList
-        accounts={accounts}
-        accountBalances={accountBalances}
-        onRemoveAccount={removeAccount}
-        onUpdateAccount={updateExistingAccount}
-      />
+      <main className="main-content">
+        <header className="topbar">
+          <button
+            type="button"
+            className="mobile-menu-button"
+            aria-label="Open navigation"
+            onClick={() => setMobileNavOpen(true)}
+          >
+            ☰
+          </button>
 
-      <AddTransactionForm
-        accounts={accounts}
-        categories={categories}
-        onTransactionCreated={refreshTransactions}
-      />
+          <div className="topbar-page-title">
+            <span className="topbar-kicker">Finance Tracker</span>
+            <strong>{activeItem?.label}</strong>
+          </div>
 
-      <TransactionList
-        transactions={transactions}
-        accounts={accounts}
-        categories={categories}
-        onVoidTransaction={handleVoidTransaction}
-      />
-    </>
+          <div className="topbar-user">
+            <div className="topbar-avatar">
+              {authResponse.name?.charAt(0).toUpperCase() ?? "U"}
+            </div>
+
+            <span>{authResponse.name}</span>
+          </div>
+        </header>
+
+        <div className="content-wrapper">
+          <div className="page-header">
+            <div>
+              <p className="page-kicker">Overview</p>
+              <h1>{activeItem?.label}</h1>
+            </div>
+
+            <div className="welcome-message">
+              Welcome back, <strong>{authResponse.name}</strong>
+            </div>
+          </div>
+
+          {renderPage()}
+        </div>
+      </main>
+    </div>
   );
 }
 

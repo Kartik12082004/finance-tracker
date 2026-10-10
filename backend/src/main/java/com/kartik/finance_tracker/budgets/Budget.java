@@ -1,15 +1,12 @@
 package com.kartik.finance_tracker.budgets;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -40,15 +37,11 @@ public class Budget {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private BudgetPeriod period;
+    @Column(name = "budget_year", nullable = false)
+    private int year;
 
-    @Column(name = "start_date", nullable = false)
-    private LocalDate startDate;
-
-    @Column(name = "end_date", nullable = false)
-    private LocalDate endDate;
+    @Column(name = "budget_month", nullable = false)
+    private int month;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
@@ -63,16 +56,14 @@ public class Budget {
             User user,
             Category category,
             BigDecimal amount,
-            BudgetPeriod period,
-            LocalDate startDate,
-            LocalDate endDate
+            int year,
+            int month
     ) {
         this.user = user;
         this.category = category;
         this.amount = amount;
-        this.period = period;
-        this.startDate = startDate;
-        this.endDate = endDate;
+        this.year = year;
+        this.month = month;
         this.createdAt = OffsetDateTime.now(ZoneOffset.UTC);
         this.updatedAt = this.createdAt;
     }
@@ -93,16 +84,12 @@ public class Budget {
         return amount;
     }
 
-    public BudgetPeriod getPeriod() {
-        return period;
+    public int getYear() {
+        return year;
     }
 
-    public LocalDate getStartDate() {
-        return startDate;
-    }
-
-    public LocalDate getEndDate() {
-        return endDate;
+    public int getMonth() {
+        return month;
     }
 
     public OffsetDateTime getCreatedAt() {
@@ -113,16 +100,8 @@ public class Budget {
         return updatedAt;
     }
 
-    public void update(
-            BigDecimal amount,
-            BudgetPeriod period,
-            LocalDate startDate,
-            LocalDate endDate
-    ) {
+    public void updateAmount(BigDecimal amount) {
         this.amount = amount;
-        this.period = period;
-        this.startDate = startDate;
-        this.endDate = endDate;
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 }

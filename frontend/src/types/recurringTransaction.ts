@@ -13,7 +13,7 @@ export type RecurringTransaction = {
   frequencyUnit: RecurringFrequencyUnit;
   frequencyInterval: number;
   nextOccurrence: string;
-  pausedUntil: string | null;
+  skipNextOccurrence: boolean;
   active: boolean;
   createdAt: string;
   updatedAt: string;

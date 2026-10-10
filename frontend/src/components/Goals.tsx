@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   contributeToGoal,
   createGoal,
@@ -7,7 +7,13 @@ import {
   pauseGoal,
   resumeGoal,
 } from "../api/goalApi";
+import { getAccounts } from "../api/accountApi";
+import type { Account } from "../types/account";
 import type { Goal } from "../types/goal";
+
+type GoalsProps = {
+  onFinanceDataChanged: () => Promise<void>;
+};
 
 function formatAmount(amount: number): string {
   return amount.toFixed(2);
@@ -25,8 +31,18 @@ function getProgress(goal: Goal): number {
   return Math.min(100, (goal.currentAmount / goal.targetAmount) * 100);
 }
 
-export default function Goals() {
+function getEligibleSourceAccounts(accounts: Account[]): Account[] {
+  return accounts.filter(
+    (account) =>
+      account.type !== "GOAL" &&
+      account.type !== "CREDIT_CARD" &&
+      account.currency === "INR",
+  );
+}
+
+export default function Goals({ onFinanceDataChanged }: GoalsProps) {
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,48 +54,119 @@ export default function Goals() {
   const [contributionAmounts, setContributionAmounts] = useState<
     Record<string, string>
   >({});
-
+  const [selectedSourceAccounts, setSelectedSourceAccounts] = useState<
+    Record<string, string>
+  >({});
   const [activeAction, setActiveAction] = useState<string | null>(null);
 
-  async function loadGoals() {
-    try {
-      setIsLoading(true);
-      setError(null);
+  async function loadGoalsAndAccounts() {
+    const [goalResponse, accountResponse] = await Promise.all([
+      getGoals(),
+      getAccounts(),
+    ]);
 
-      const response = await getGoals();
+    setGoals(goalResponse.filter((goal) => goal.status !== "CANCELLED"));
+    setAccounts(accountResponse);
 
-      /*
-       * Keep this defensive filtering in the UI as well as the
-       * backend. Older cancelled rows should never be displayed.
-       */
-      setGoals(response.filter((goal) => goal.status !== "CANCELLED"));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load goals.");
-    } finally {
-      setIsLoading(false);
-    }
+    const eligibleAccounts = getEligibleSourceAccounts(accountResponse);
+
+    setSelectedSourceAccounts((current) => {
+      const next = { ...current };
+
+      for (const goal of goalResponse) {
+        const selectedIsValid = eligibleAccounts.some(
+          (account) => account.id === next[goal.id],
+        );
+
+        if (!selectedIsValid) {
+          if (eligibleAccounts.length > 0) {
+            next[goal.id] = eligibleAccounts[0].id;
+          } else {
+            delete next[goal.id];
+          }
+        }
+      }
+
+      return next;
+    });
   }
 
   useEffect(() => {
-    async function loadInitialGoals() {
+    let cancelled = false;
+
+    async function loadInitialData() {
       try {
-        setIsLoading(true);
-        setError(null);
+        const [goalResponse, accountResponse] = await Promise.all([
+          getGoals(),
+          getAccounts(),
+        ]);
 
-        const response = await getGoals();
+        if (cancelled) {
+          return;
+        }
 
-        setGoals(response.filter((goal) => goal.status !== "CANCELLED"));
+        setGoals(goalResponse.filter((goal) => goal.status !== "CANCELLED"));
+        setAccounts(accountResponse);
+
+        const eligibleAccounts = getEligibleSourceAccounts(accountResponse);
+
+        setSelectedSourceAccounts((current) => {
+          const next = { ...current };
+
+          for (const goal of goalResponse) {
+            const selectedIsValid = eligibleAccounts.some(
+              (account) => account.id === next[goal.id],
+            );
+
+            if (!selectedIsValid) {
+              if (eligibleAccounts.length > 0) {
+                next[goal.id] = eligibleAccounts[0].id;
+              } else {
+                delete next[goal.id];
+              }
+            }
+          }
+
+          return next;
+        });
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load goals.");
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load goals and accounts.",
+          );
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
-    void loadInitialGoals();
+    void Promise.resolve().then(loadInitialData);
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  async function handleCreateGoal(event: React.FormEvent<HTMLFormElement>) {
+  async function refreshAfterSuccessfulChange(message: string) {
+    try {
+      await Promise.all([loadGoalsAndAccounts(), onFinanceDataChanged()]);
+      return true;
+    } catch (err) {
+      const refreshError = err instanceof Error ? err.message : "Unknown error";
+
+      setError(
+        `${message} However, refreshing the displayed financial data failed: ${refreshError}. Reload the page to verify the latest state.`,
+      );
+
+      return false;
+    }
+  }
+
+  async function handleCreateGoal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmedName = name.trim();
@@ -90,8 +177,14 @@ export default function Goals() {
       return;
     }
 
-    if (!Number.isFinite(parsedTargetAmount) || parsedTargetAmount <= 0) {
-      setError("Target amount must be greater than zero.");
+    if (
+      !Number.isFinite(parsedTargetAmount) ||
+      parsedTargetAmount <= 0 ||
+      !Number.isInteger(parsedTargetAmount * 100)
+    ) {
+      setError(
+        "Target amount must be positive and have at most 2 decimal places.",
+      );
       return;
     }
 
@@ -114,7 +207,7 @@ export default function Goals() {
       setTargetAmount("");
       setTargetDate("");
 
-      await loadGoals();
+      await refreshAfterSuccessfulChange("Goal created successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create goal.");
     } finally {
@@ -125,9 +218,21 @@ export default function Goals() {
   async function handleContribution(goal: Goal) {
     const rawAmount = contributionAmounts[goal.id] ?? "";
     const amount = Number(rawAmount);
+    const sourceAccountId = selectedSourceAccounts[goal.id];
 
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setError("Contribution must be greater than zero.");
+    if (!sourceAccountId) {
+      setError("Select an eligible INR source account first.");
+      return;
+    }
+
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !Number.isInteger(amount * 100)
+    ) {
+      setError(
+        "Contribution must be positive and have at most 2 decimal places.",
+      );
       return;
     }
 
@@ -135,14 +240,14 @@ export default function Goals() {
       setActiveAction(`contribute-${goal.id}`);
       setError(null);
 
-      await contributeToGoal(goal.id, amount);
+      await contributeToGoal(goal.id, sourceAccountId, amount);
 
       setContributionAmounts((current) => ({
         ...current,
         [goal.id]: "",
       }));
 
-      await loadGoals();
+      await refreshAfterSuccessfulChange("Contribution recorded successfully.");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to contribute to goal.",
@@ -158,7 +263,7 @@ export default function Goals() {
       setError(null);
 
       await pauseGoal(goalId);
-      await loadGoals();
+      await loadGoalsAndAccounts();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to pause goal.");
     } finally {
@@ -172,7 +277,7 @@ export default function Goals() {
       setError(null);
 
       await resumeGoal(goalId);
-      await loadGoals();
+      await loadGoalsAndAccounts();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resume goal.");
     } finally {
@@ -195,15 +300,19 @@ export default function Goals() {
 
       await deleteGoal(goalId);
 
-      setGoals((currentGoals) =>
-        currentGoals.filter((goal) => goal.id !== goalId),
-      );
-
       setContributionAmounts((current) => {
         const updated = { ...current };
         delete updated[goalId];
         return updated;
       });
+
+      setSelectedSourceAccounts((current) => {
+        const updated = { ...current };
+        delete updated[goalId];
+        return updated;
+      });
+
+      await refreshAfterSuccessfulChange("Goal deleted successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete goal.");
     } finally {
@@ -220,11 +329,13 @@ export default function Goals() {
     );
   }
 
+  const sourceAccounts = getEligibleSourceAccounts(accounts);
+
   return (
     <section>
       <h2>Goals</h2>
 
-      {error && <p>{error}</p>}
+      {error && <p role="alert">{error}</p>}
 
       <section>
         <h3>Create Goal</h3>
@@ -232,18 +343,17 @@ export default function Goals() {
         <form onSubmit={handleCreateGoal}>
           <div>
             <label htmlFor="goal-name">Name</label>
-
             <input
               id="goal-name"
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
+              required
             />
           </div>
 
           <div>
             <label htmlFor="goal-target-amount">Target amount</label>
-
             <input
               id="goal-target-amount"
               type="number"
@@ -251,17 +361,18 @@ export default function Goals() {
               step="0.01"
               value={targetAmount}
               onChange={(event) => setTargetAmount(event.target.value)}
+              required
             />
           </div>
 
           <div>
             <label htmlFor="goal-target-date">Target date</label>
-
             <input
               id="goal-target-date"
               type="date"
               value={targetDate}
               onChange={(event) => setTargetDate(event.target.value)}
+              required
             />
           </div>
 
@@ -280,7 +391,6 @@ export default function Goals() {
           <ul>
             {goals.map((goal) => {
               const progress = getProgress(goal);
-
               const remaining = Math.max(
                 0,
                 goal.targetAmount - goal.currentAmount,
@@ -289,12 +399,12 @@ export default function Goals() {
               const isCompleted = goal.status === "COMPLETED";
               const isPaused = goal.status === "PAUSED";
               const isActive = goal.status === "ACTIVE";
+              const actionIsRunning = activeAction !== null;
 
               return (
                 <li key={goal.id}>
                   <article>
                     <h4>{goal.name}</h4>
-
                     <p>Status: {goal.status}</p>
 
                     <p>
@@ -303,41 +413,78 @@ export default function Goals() {
                     </p>
 
                     <p>Progress: {progress.toFixed(1)}%</p>
-
+                    <progress value={progress} max={100} />
                     <p>Remaining: ₹{formatAmount(remaining)}</p>
-
                     <p>Target date: {formatDate(goal.targetDate)}</p>
 
                     {isActive && (
                       <div>
-                        <label htmlFor={`contribution-${goal.id}`}>
-                          Contribution
-                        </label>
+                        <div>
+                          <label htmlFor={`source-account-${goal.id}`}>
+                            From account
+                          </label>
+                          <select
+                            id={`source-account-${goal.id}`}
+                            value={selectedSourceAccounts[goal.id] ?? ""}
+                            onChange={(event) =>
+                              setSelectedSourceAccounts((current) => ({
+                                ...current,
+                                [goal.id]: event.target.value,
+                              }))
+                            }
+                            disabled={
+                              sourceAccounts.length === 0 || actionIsRunning
+                            }
+                          >
+                            <option value="">Select an account</option>
+                            {sourceAccounts.map((account) => (
+                              <option key={account.id} value={account.id}>
+                                {account.name} ({account.type} ·{" "}
+                                {account.currency})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                        <input
-                          id={`contribution-${goal.id}`}
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={contributionAmounts[goal.id] ?? ""}
-                          onChange={(event) =>
-                            setContributionAmounts((current) => ({
-                              ...current,
-                              [goal.id]: event.target.value,
-                            }))
-                          }
-                          placeholder="5000"
-                        />
+                        {sourceAccounts.length === 0 && (
+                          <p>
+                            Create an eligible INR bank, cash, or investment
+                            account before contributing to this goal.
+                          </p>
+                        )}
 
-                        <button
-                          type="button"
-                          onClick={() => void handleContribution(goal)}
-                          disabled={activeAction === `contribute-${goal.id}`}
-                        >
-                          {activeAction === `contribute-${goal.id}`
-                            ? "Adding..."
-                            : "Contribute"}
-                        </button>
+                        <div>
+                          <label htmlFor={`contribution-${goal.id}`}>
+                            Contribution amount
+                          </label>
+                          <input
+                            id={`contribution-${goal.id}`}
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={contributionAmounts[goal.id] ?? ""}
+                            onChange={(event) =>
+                              setContributionAmounts((current) => ({
+                                ...current,
+                                [goal.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="5000"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => void handleContribution(goal)}
+                            disabled={
+                              activeAction === `contribute-${goal.id}` ||
+                              sourceAccounts.length === 0
+                            }
+                          >
+                            {activeAction === `contribute-${goal.id}`
+                              ? "Adding..."
+                              : "Contribute"}
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -346,7 +493,7 @@ export default function Goals() {
                         <button
                           type="button"
                           onClick={() => void handlePause(goal.id)}
-                          disabled={activeAction === `pause-${goal.id}`}
+                          disabled={actionIsRunning}
                         >
                           {activeAction === `pause-${goal.id}`
                             ? "Pausing..."
@@ -358,7 +505,7 @@ export default function Goals() {
                         <button
                           type="button"
                           onClick={() => void handleResume(goal.id)}
-                          disabled={activeAction === `resume-${goal.id}`}
+                          disabled={actionIsRunning}
                         >
                           {activeAction === `resume-${goal.id}`
                             ? "Resuming..."
@@ -369,7 +516,7 @@ export default function Goals() {
                       <button
                         type="button"
                         onClick={() => void handleDelete(goal.id)}
-                        disabled={activeAction === `delete-${goal.id}`}
+                        disabled={actionIsRunning}
                       >
                         {activeAction === `delete-${goal.id}`
                           ? "Deleting..."

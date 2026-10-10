@@ -1,3 +1,4 @@
+
 package com.kartik.finance_tracker.recurring;
 
 import java.math.BigDecimal;
@@ -67,15 +68,12 @@ public class RecurringTransaction {
     /*
      * Preserves the original calendar day for monthly/yearly
      * recurring transactions.
-     *
-     * Example:
-     * January 31 -> February 28 -> March 31
      */
     @Column(name = "anchor_day", nullable = false)
     private int anchorDay;
 
-    @Column(name = "paused_until")
-    private LocalDate pausedUntil;
+    @Column(name = "skip_next_occurrence", nullable = false)
+    private boolean skipNextOccurrence;
 
     @Column(nullable = false)
     private boolean active;
@@ -108,16 +106,8 @@ public class RecurringTransaction {
         this.frequencyUnit = frequencyUnit;
         this.frequencyInterval = frequencyInterval;
         this.nextOccurrence = nextOccurrence;
-
-        /*
-         * The original day becomes the recurrence anchor.
-         *
-         * Example:
-         * 31st -> February 28th -> March 31st
-         */
         this.anchorDay = nextOccurrence.getDayOfMonth();
-
-        this.pausedUntil = null;
+        this.skipNextOccurrence = false;
         this.active = true;
         this.createdAt = OffsetDateTime.now(ZoneOffset.UTC);
         this.updatedAt = this.createdAt;
@@ -167,8 +157,8 @@ public class RecurringTransaction {
         return anchorDay;
     }
 
-    public LocalDate getPausedUntil() {
-        return pausedUntil;
+    public boolean isSkipNextOccurrence() {
+        return skipNextOccurrence;
     }
 
     public boolean isActive() {
@@ -183,12 +173,6 @@ public class RecurringTransaction {
         return updatedAt;
     }
 
-    /*
-     * Updates the recurring rule for future generated transactions.
-     * Existing transactions remain unchanged.
-     *
-     * A new next occurrence establishes a new calendar-day anchor.
-     */
     public void update(
             Account account,
             Category category,
@@ -207,112 +191,63 @@ public class RecurringTransaction {
         this.frequencyUnit = frequencyUnit;
         this.frequencyInterval = frequencyInterval;
         this.nextOccurrence = nextOccurrence;
-
-        /*
-         * Editing the next occurrence also establishes a new
-         * recurrence anchor.
-         */
         this.anchorDay = nextOccurrence.getDayOfMonth();
-
+        this.skipNextOccurrence = false;
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
     /*
-     * Temporarily pauses the recurring rule.
-     *
-     * The duration uses the recurring rule's frequency unit:
-     *
-     * WEEK  -> weeks
-     * MONTH -> months
-     * YEAR  -> years
-     *
-     * Missed occurrences during the pause are not generated later.
+     * Marks the currently scheduled occurrence to be skipped.
+     * The date remains unchanged so the user can undo the skip
+     * before the occurrence is due.
      */
-    public void pauseFor(int duration) {
-        LocalDate resumeDate = calculateOccurrenceAfter(duration);
+    public void skipNextOccurrence() {
+        this.skipNextOccurrence = true;
+        this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
 
-        this.pausedUntil = resumeDate;
-        this.nextOccurrence = resumeDate;
+    public void undoSkipNextOccurrence() {
+        this.skipNextOccurrence = false;
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
     /*
-     * Pauses the recurring rule indefinitely.
-     *
-     * active=false ensures the scheduler ignores the rule until
-     * the user explicitly resumes it.
+     * Called by the generation service when nextOccurrence is due.
+     * Returns true if this occurrence should be skipped.
      */
-    public void pauseUntilResumed() {
-        this.active = false;
-        this.pausedUntil = null;
-        this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
-    }
-
-    /*
-     * Resumes the recurring rule.
-     *
-     * If the stored next occurrence is already in the past,
-     * missed occurrences are skipped instead of being replayed.
-     */
-    public void resume(LocalDate today) {
-        this.active = true;
-        this.pausedUntil = null;
-
-        while (!nextOccurrence.isAfter(today)) {
-            advanceNextOccurrence();
+    public boolean consumeSkipForDueOccurrence() {
+        if (!skipNextOccurrence) {
+            return false;
         }
 
-        this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
+        this.skipNextOccurrence = false;
+        advanceNextOccurrence();
+        return true;
     }
 
-    /*
-     * Calculates a future occurrence using the recurring rule's
-     * frequency unit.
-     *
-     * Monthly/yearly schedules preserve the original anchor day,
-     * even when the target month is shorter.
-     */
     private LocalDate calculateOccurrenceAfter(int intervals) {
         return switch (frequencyUnit) {
-
-            case WEEK ->
-                    nextOccurrence.plusWeeks(intervals);
+            case WEEK -> nextOccurrence.plusWeeks(intervals);
 
             case MONTH -> {
                 YearMonth targetMonth =
-                        YearMonth.from(nextOccurrence)
-                                .plusMonths(intervals);
-
-                int day = Math.min(
-                        anchorDay,
-                        targetMonth.lengthOfMonth()
-                );
-
+                        YearMonth.from(nextOccurrence).plusMonths(intervals);
+                int day = Math.min(anchorDay, targetMonth.lengthOfMonth());
                 yield targetMonth.atDay(day);
             }
 
             case YEAR -> {
                 YearMonth targetMonth =
-                        YearMonth.from(nextOccurrence)
-                                .plusYears(intervals);
-
-                int day = Math.min(
-                        anchorDay,
-                        targetMonth.lengthOfMonth()
-                );
-
+                        YearMonth.from(nextOccurrence).plusYears(intervals);
+                int day = Math.min(anchorDay, targetMonth.lengthOfMonth());
                 yield targetMonth.atDay(day);
             }
         };
     }
 
-    /*
-     * Advances to the next normal scheduled occurrence.
-     */
     public void advanceNextOccurrence() {
         this.nextOccurrence =
                 calculateOccurrenceAfter(frequencyInterval);
-
         this.updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 }

@@ -1,21 +1,22 @@
 package com.kartik.finance_tracker.accounts;
 
-import com.kartik.finance_tracker.common.exception.ResourceNotFoundException;
-import com.kartik.finance_tracker.investments.InvestmentTransactionRepository;
-import com.kartik.finance_tracker.transactions.TransactionRepository;
-import com.kartik.finance_tracker.users.User;
-import com.kartik.finance_tracker.users.UserRepository;
-
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.kartik.finance_tracker.common.exception.ResourceNotFoundException;
+import com.kartik.finance_tracker.investments.InvestmentTransactionRepository;
+import com.kartik.finance_tracker.transactions.TransactionRepository;
+import com.kartik.finance_tracker.users.User;
+import com.kartik.finance_tracker.users.UserRepository;
+
 @Service
 public class AccountService {
+
+    private static final String GOAL_ACCOUNT_CURRENCY = "INR";
 
     private final AccountRepository accountRepository;
     private final UserRepository userRepository;
@@ -42,14 +43,18 @@ public class AccountService {
             String currency,
             BigDecimal openingBalance
     ) {
+        if (type == null) {
+            throw new IllegalArgumentException("Account type is required");
+        }
 
-        if (openingBalance != null && openingBalance.scale() > 2) {
+        if (type == AccountType.GOAL) {
             throw new IllegalArgumentException(
-                    "Amount cannot have more than 2 decimal places"
+                    "Goal accounts can only be created through goal management"
             );
         }
 
-        // Verify that the account is being created for an existing user.
+        validateOpeningBalance(openingBalance);
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("User not found"));
@@ -65,24 +70,38 @@ public class AccountService {
         return accountRepository.save(account);
     }
 
+    /**
+     * Creates the dedicated zero-balance account belonging to a goal.
+     * This method is intended for internal service use, not the Accounts API.
+     */
+    @Transactional
+    public Account createGoalAccount(UUID userId, String goalName) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("User not found"));
+
+        Account account = new Account(
+                user,
+                "Goal - " + goalName,
+                AccountType.GOAL,
+                GOAL_ACCOUNT_CURRENCY,
+                new BigDecimal("0.00")
+        );
+
+        return accountRepository.save(account);
+    }
+
     @Transactional(readOnly = true)
     public List<Account> getAccounts(UUID userId) {
-
-        // The authenticated user should exist in the database.
         if (!userRepository.existsById(userId)) {
             throw new ResourceNotFoundException("User not found");
         }
 
-        // Only return accounts owned by the authenticated user.
         return accountRepository.findByUser_Id(userId);
     }
 
     @Transactional(readOnly = true)
     public Account getAccount(UUID userId, UUID accountId) {
-
-        // Scope the lookup by both account ID and authenticated user ID.
-        // This prevents one user from accessing another user's account
-        // simply by changing the account ID in the URL.
         return accountRepository.findByIdAndUser_Id(accountId, userId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Account not found"));
@@ -96,44 +115,44 @@ public class AccountService {
             AccountType type,
             String currency
     ) {
+        Account account = getAccount(userId, accountId);
 
-        // Only an account belonging to the authenticated user can be updated.
-        Account account = accountRepository.findByIdAndUser_Id(
-                accountId,
-                userId
-        ).orElseThrow(() ->
-                new ResourceNotFoundException("Account not found"));
+        if (account.getType() == AccountType.GOAL) {
+            throw new IllegalArgumentException(
+                    "Goal accounts cannot be updated through account management"
+            );
+        }
 
-        // Account editing changes metadata only.
-        // Opening balance is intentionally not modified here because it
-        // represents the account's initial financial state.
+        if (type == AccountType.GOAL) {
+            throw new IllegalArgumentException(
+                    "An account cannot be converted into a goal account"
+            );
+        }
+
         account.setName(name);
         account.setType(type);
         account.setCurrency(currency);
-        account.setUpdatedAt(OffsetDateTime.now());
+        account.setUpdatedAt(java.time.OffsetDateTime.now());
 
         return accountRepository.save(account);
     }
 
     @Transactional
     public void deleteAccount(UUID userId, UUID accountId) {
+        Account account = getAccount(userId, accountId);
 
-        // Only an account belonging to the authenticated user can be deleted.
-        Account account = accountRepository.findByIdAndUser_Id(
-                accountId,
-                userId
-        ).orElseThrow(() ->
-                new ResourceNotFoundException("Account not found"));
+        if (account.getType() == AccountType.GOAL) {
+            throw new IllegalArgumentException(
+                    "Goal accounts cannot be deleted through account management"
+            );
+        }
 
-        // Financial history must never be deleted implicitly with an account.
         boolean hasTransactions =
-                transactionRepository
-                        .existsByAccount_IdOrDestinationAccount_Id(
-                                accountId,
-                                accountId
-                        );
+                transactionRepository.existsByAccount_IdOrDestinationAccount_Id(
+                        accountId,
+                        accountId
+                );
 
-        // Investment transactions also make the account part of financial history.
         boolean hasInvestmentTransactions =
                 investmentTransactionRepository.existsByAccount_Id(accountId);
 
@@ -144,5 +163,47 @@ public class AccountService {
         }
 
         accountRepository.delete(account);
+    }
+
+    @Transactional
+    public void deleteGoalAccount(UUID userId, UUID accountId) {
+        Account account = getAccount(userId, accountId);
+
+        if (account.getType() != AccountType.GOAL) {
+                throw new IllegalArgumentException(
+                        "The account is not a goal account"
+                );
+        }
+
+        boolean hasTransactions =
+                transactionRepository.existsByAccount_IdOrDestinationAccount_Id(
+                        accountId,
+                        accountId
+                );
+
+        boolean hasInvestmentTransactions =
+                investmentTransactionRepository.existsByAccount_Id(accountId);
+
+        if (hasTransactions || hasInvestmentTransactions) {
+                throw new IllegalArgumentException(
+                        "Goal cannot be deleted because its account has financial transactions"
+                );
+        }
+
+        accountRepository.delete(account);
+    }
+
+    private void validateOpeningBalance(BigDecimal openingBalance) {
+        if (openingBalance == null) {
+            throw new IllegalArgumentException(
+                    "Opening balance is required"
+            );
+        }
+
+        if (openingBalance.scale() > 2) {
+            throw new IllegalArgumentException(
+                    "Amount cannot have more than 2 decimal places"
+            );
+        }
     }
 }

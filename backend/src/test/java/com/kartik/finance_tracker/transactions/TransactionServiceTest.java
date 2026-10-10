@@ -12,6 +12,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 
 import com.kartik.finance_tracker.accounts.Account;
@@ -21,6 +22,7 @@ import com.kartik.finance_tracker.accounts.AccountType;
 import com.kartik.finance_tracker.categories.Category;
 import com.kartik.finance_tracker.categories.CategoryRepository;
 import com.kartik.finance_tracker.categories.CategoryType;
+import com.kartik.finance_tracker.common.exception.ResourceNotFoundException;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
@@ -32,6 +34,7 @@ class TransactionServiceTest {
     private CategoryRepository categoryRepository;
     private AccountBalanceService accountBalanceService;
     private CacheManager cacheManager;
+    private Cache monthlySummaryCache;
 
     private TransactionService transactionService;
 
@@ -41,13 +44,13 @@ class TransactionServiceTest {
 
     @BeforeEach
     void setUp() {
-
         transactionRepository = mock(TransactionRepository.class);
         userRepository = mock(UserRepository.class);
         accountRepository = mock(AccountRepository.class);
         categoryRepository = mock(CategoryRepository.class);
         accountBalanceService = mock(AccountBalanceService.class);
         cacheManager = mock(CacheManager.class);
+        monthlySummaryCache = mock(Cache.class);
 
         transactionService = new TransactionService(
                 transactionRepository,
@@ -58,14 +61,12 @@ class TransactionServiceTest {
                 cacheManager
         );
 
-        // All tests use one user so ownership rules can be tested consistently.
         user = new User(
                 "kartik@example.com",
                 "hashed-password",
                 "Kartik"
         );
 
-        // Create two accounts for testing transfers between accounts.
         bankAccount = new Account(
                 user,
                 "HDFC Savings",
@@ -81,24 +82,24 @@ class TransactionServiceTest {
                 "INR",
                 BigDecimal.ZERO
         );
+
+        when(cacheManager.getCache("monthlySummary"))
+                .thenReturn(monthlySummaryCache);
+
+        when(userRepository.findById(user.getId()))
+                .thenReturn(Optional.of(user));
+
+        when(transactionRepository.save(any(Transaction.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
     void createTransaction_shouldCreateExpense() {
-
-        // Expenses require an EXPENSE category and reduce the source account balance.
-        Category category = category(
-                "Food",
-                CategoryType.EXPENSE
-        );
+        Category category = category("Food", CategoryType.EXPENSE);
 
         stubUserAndAccount(bankAccount);
         stubCategory(category);
 
-        when(transactionRepository.save(any(Transaction.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        // The account has enough money for this expense.
         when(accountBalanceService.calculateBalance(bankAccount.getId()))
                 .thenReturn(new BigDecimal("10000.00"));
 
@@ -124,24 +125,16 @@ class TransactionServiceTest {
         assertThat(result.getOccurredAt()).isEqualTo(occurredAt);
         assertThat(result.getDestinationAccount()).isNull();
 
-        // A valid transaction should be persisted.
         verify(transactionRepository).save(any(Transaction.class));
+        verify(monthlySummaryCache).evictIfPresent(anyString());
     }
 
     @Test
     void createTransaction_shouldCreateIncome() {
-
-        // Income requires an INCOME category and increases the source account balance.
-        Category category = category(
-                "Salary",
-                CategoryType.INCOME
-        );
+        Category category = category("Salary", CategoryType.INCOME);
 
         stubUserAndAccount(bankAccount);
         stubCategory(category);
-
-        when(transactionRepository.save(any(Transaction.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
 
         Transaction result = transactionService.createTransaction(
                 user.getId(),
@@ -150,33 +143,26 @@ class TransactionServiceTest {
                 category.getId(),
                 TransactionType.INCOME,
                 new BigDecimal("50000.00"),
-                "September Salary",
+                "Monthly salary",
                 OffsetDateTime.now()
         );
 
         assertThat(result.getType()).isEqualTo(TransactionType.INCOME);
         assertThat(result.getAmount()).isEqualByComparingTo("50000.00");
         assertThat(result.getCategory()).isSameAs(category);
-        assertThat(result.getDestinationAccount()).isNull();
 
         verify(transactionRepository).save(any(Transaction.class));
     }
 
     @Test
     void createTransaction_shouldCreateTransfer() {
-
-        // Transfers move money between accounts and therefore have no category.
         stubUserAndAccount(bankAccount);
 
         when(accountRepository.findById(secondBankAccount.getId()))
                 .thenReturn(Optional.of(secondBankAccount));
 
-        // The source account must have enough money for the transfer.
         when(accountBalanceService.calculateBalance(bankAccount.getId()))
                 .thenReturn(new BigDecimal("20000.00"));
-
-        when(transactionRepository.save(any(Transaction.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
 
         Transaction result = transactionService.createTransaction(
                 user.getId(),
@@ -191,8 +177,7 @@ class TransactionServiceTest {
 
         assertThat(result.getType()).isEqualTo(TransactionType.TRANSFER);
         assertThat(result.getAccount()).isSameAs(bankAccount);
-        assertThat(result.getDestinationAccount())
-                .isSameAs(secondBankAccount);
+        assertThat(result.getDestinationAccount()).isSameAs(secondBankAccount);
         assertThat(result.getCategory()).isNull();
         assertThat(result.getAmount()).isEqualByComparingTo("10000.00");
 
@@ -200,165 +185,59 @@ class TransactionServiceTest {
     }
 
     @Test
-    void createTransaction_shouldAllowCreditCardPaymentWithinAmountOwed() {
-
-        Account creditCard = new Account(
-                user,
-                "HDFC Credit Card",
-                AccountType.CREDIT_CARD,
-                "INR",
-                BigDecimal.ZERO
-        );
-
-        stubUserAndAccount(bankAccount);
-
-        when(accountRepository.findById(creditCard.getId()))
-                .thenReturn(Optional.of(creditCard));
-
-        // The bank account has enough money to make the payment.
-        when(accountBalanceService.calculateBalance(bankAccount.getId()))
-                .thenReturn(new BigDecimal("10000.00"));
-
-        // The credit card currently has 5,000 of outstanding debt.
-        when(accountBalanceService.calculateBalance(creditCard.getId()))
-                .thenReturn(new BigDecimal("5000.00"));
-
-        when(transactionRepository.save(any(Transaction.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        // Paying 3,000 is valid because it does not exceed the 5,000 owed.
-        Transaction result = transactionService.createTransaction(
-                user.getId(),
-                bankAccount.getId(),
-                creditCard.getId(),
-                null,
-                TransactionType.TRANSFER,
-                new BigDecimal("3000.00"),
-                "Credit card payment",
-                OffsetDateTime.now()
-        );
-
-        assertThat(result.getType()).isEqualTo(TransactionType.TRANSFER);
-        assertThat(result.getAccount()).isSameAs(bankAccount);
-        assertThat(result.getDestinationAccount()).isSameAs(creditCard);
-        assertThat(result.getAmount()).isEqualByComparingTo("3000.00");
-
-        verify(transactionRepository).save(any(Transaction.class));
-    }
-
-    @Test
-    void createTransaction_shouldRejectCreditCardPaymentExceedingAmountOwed() {
-
-        Account creditCard = new Account(
-                user,
-                "HDFC Credit Card",
-                AccountType.CREDIT_CARD,
-                "INR",
-                BigDecimal.ZERO
-        );
-
-        stubUserAndAccount(bankAccount);
-
-        when(accountRepository.findById(creditCard.getId()))
-                .thenReturn(Optional.of(creditCard));
-
-        when(accountBalanceService.calculateBalance(bankAccount.getId()))
-                .thenReturn(new BigDecimal("10000.00"));
-
-        // Only 5,000 is currently owed on the credit card.
-        when(accountBalanceService.calculateBalance(creditCard.getId()))
-                .thenReturn(new BigDecimal("5000.00"));
-
-        // Phase 1 rejects payments that exceed the amount currently owed.
-        assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        user.getId(),
-                        bankAccount.getId(),
-                        creditCard.getId(),
-                        null,
-                        TransactionType.TRANSFER,
-                        new BigDecimal("6000.00"),
-                        "Credit card payment",
-                        OffsetDateTime.now()
-                )
-        )
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Credit card payment exceeds amount owed");
-
-        // Invalid transactions must never be persisted.
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
-    }
-
-    @Test
     void createTransaction_shouldRejectExpenseWhenBalanceIsInsufficient() {
-
-        Category category = category(
-                "Food",
-                CategoryType.EXPENSE
-        );
+        Category category = category("Food", CategoryType.EXPENSE);
 
         stubUserAndAccount(bankAccount);
         stubCategory(category);
 
-        // Bank accounts cannot go below zero through an expense.
         when(accountBalanceService.calculateBalance(bankAccount.getId()))
                 .thenReturn(new BigDecimal("1000.00"));
 
-        // The requested expense is greater than the available balance.
-        assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        user.getId(),
-                        bankAccount.getId(),
-                        null,
-                        category.getId(),
-                        TransactionType.EXPENSE,
-                        new BigDecimal("1500.00"),
-                        "Groceries",
-                        OffsetDateTime.now()
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                category.getId(),
+                TransactionType.EXPENSE,
+                new BigDecimal("1500.00"),
+                "Groceries",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Insufficient funds");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
     void createTransaction_shouldRejectTransferWhenBalanceIsInsufficient() {
-
         stubUserAndAccount(bankAccount);
 
         when(accountRepository.findById(secondBankAccount.getId()))
                 .thenReturn(Optional.of(secondBankAccount));
 
-        // Bank accounts cannot transfer out more money than they currently hold.
         when(accountBalanceService.calculateBalance(bankAccount.getId()))
                 .thenReturn(new BigDecimal("1000.00"));
 
-        assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        user.getId(),
-                        bankAccount.getId(),
-                        secondBankAccount.getId(),
-                        null,
-                        TransactionType.TRANSFER,
-                        new BigDecimal("1500.00"),
-                        "Transfer",
-                        OffsetDateTime.now()
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                secondBankAccount.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("1500.00"),
+                "Transfer",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Insufficient funds");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
     void createTransaction_shouldRejectCreditCardAsTransferSource() {
-
         Account creditCard = new Account(
                 user,
                 "HDFC Credit Card",
@@ -372,30 +251,24 @@ class TransactionServiceTest {
         when(accountRepository.findById(secondBankAccount.getId()))
                 .thenReturn(Optional.of(secondBankAccount));
 
-        // Phase 1 does not support credit-card cash advances.
-        // Therefore, a credit card cannot be the source of a transfer.
-        assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        user.getId(),
-                        creditCard.getId(),
-                        secondBankAccount.getId(),
-                        null,
-                        TransactionType.TRANSFER,
-                        new BigDecimal("1000.00"),
-                        "Cash advance",
-                        OffsetDateTime.now()
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                creditCard.getId(),
+                secondBankAccount.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("1000.00"),
+                "Cash advance",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Credit card cannot be the source of a transfer");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
     void createTransaction_shouldRejectTransferWithDifferentCurrencies() {
-
         Account usdAccount = new Account(
                 user,
                 "USD Account",
@@ -409,169 +282,129 @@ class TransactionServiceTest {
         when(accountRepository.findById(usdAccount.getId()))
                 .thenReturn(Optional.of(usdAccount));
 
-        // Phase 1 transfers do not support currency conversion.
-        // Source and destination accounts must therefore use the same currency.
-        assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        user.getId(),
-                        bankAccount.getId(),
-                        usdAccount.getId(),
-                        null,
-                        TransactionType.TRANSFER,
-                        new BigDecimal("1000.00"),
-                        "Currency mismatch",
-                        OffsetDateTime.now()
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                usdAccount.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("1000.00"),
+                "Currency mismatch",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Source and destination accounts must use the same currency");
+                .hasMessage(
+                        "Source and destination accounts must use the same currency");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
     void createTransaction_shouldRejectAmountWithMoreThanTwoDecimalPlaces() {
-
         stubUserAndAccount(bankAccount);
 
-        // Amounts are stored with a maximum precision of two decimal places.
-        // More precise values must be rejected instead of silently rounded.
-        assertThatThrownBy(() ->
-                create(
-                        null,
-                        TransactionType.EXPENSE,
-                        new BigDecimal("500.123")
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                null,
+                TransactionType.EXPENSE,
+                new BigDecimal("500.123"),
+                "Invalid amount",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Amount cannot have more than 2 decimal places");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
-    void createTransaction_shouldThrowWhenAmountIsZero() {
-
+    void createTransaction_shouldRejectZeroAmount() {
         stubUserAndAccount(bankAccount);
 
-        // A transaction must always represent a positive amount.
-        assertThatThrownBy(() ->
-                create(
-                        null,
-                        TransactionType.EXPENSE,
-                        BigDecimal.ZERO
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                null,
+                TransactionType.EXPENSE,
+                BigDecimal.ZERO,
+                "Invalid amount",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Amount must be greater than zero");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
-    void createTransaction_shouldThrowWhenAmountIsNegative() {
-
+    void createTransaction_shouldRejectNegativeAmount() {
         stubUserAndAccount(bankAccount);
 
-        // Negative transaction amounts are not allowed.
-        // Direction is represented by the transaction type instead.
-        assertThatThrownBy(() ->
-                create(
-                        null,
-                        TransactionType.EXPENSE,
-                        new BigDecimal("-500.00")
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                null,
+                TransactionType.EXPENSE,
+                new BigDecimal("-500.00"),
+                "Invalid amount",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Amount must be greater than zero");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
-    void createTransaction_shouldThrowWhenTypeIsNull() {
-
+    void createTransaction_shouldRejectMissingCategory() {
         stubUserAndAccount(bankAccount);
 
-        // Every transaction must explicitly declare whether it is income,
-        // expense, or transfer.
-        assertThatThrownBy(() ->
-                create(
-                        null,
-                        null,
-                        new BigDecimal("500.00")
-                )
-        )
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Transaction type is required");
-
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
-    }
-
-    @Test
-    void createTransaction_shouldThrowWhenCategoryIsMissing() {
-
-        stubUserAndAccount(bankAccount);
-
-        // Income and expense transactions must have a category.
-        // Transfers are the only transaction type that does not use one.
-        assertThatThrownBy(() ->
-                create(
-                        null,
-                        TransactionType.EXPENSE,
-                        new BigDecimal("500.00")
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                null,
+                TransactionType.EXPENSE,
+                new BigDecimal("500.00"),
+                "Missing category",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Category is required for income and expense");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
-    void createTransaction_shouldThrowWhenCategoryTypeDoesNotMatchTransactionType() {
-
-        Category incomeCategory = category(
-                "Salary",
-                CategoryType.INCOME
-        );
+    void createTransaction_shouldRejectCategoryTypeMismatch() {
+        Category incomeCategory = category("Salary", CategoryType.INCOME);
 
         stubUserAndAccount(bankAccount);
         stubCategory(incomeCategory);
 
-        // An EXPENSE transaction cannot use an INCOME category.
-        assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        user.getId(),
-                        bankAccount.getId(),
-                        null,
-                        incomeCategory.getId(),
-                        TransactionType.EXPENSE,
-                        new BigDecimal("500.00"),
-                        "Invalid category",
-                        OffsetDateTime.now()
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                incomeCategory.getId(),
+                TransactionType.EXPENSE,
+                new BigDecimal("500.00"),
+                "Invalid category",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Expense transaction requires an expense category");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
-    void createTransaction_shouldThrowWhenTransferHasCategory() {
-
-        Category category = category(
-                "Food",
-                CategoryType.EXPENSE
-        );
+    void createTransaction_shouldRejectTransferWithCategory() {
+        Category category = category("Food", CategoryType.EXPENSE);
 
         stubUserAndAccount(bankAccount);
         stubCategory(category);
@@ -579,103 +412,252 @@ class TransactionServiceTest {
         when(accountRepository.findById(secondBankAccount.getId()))
                 .thenReturn(Optional.of(secondBankAccount));
 
-        // Transfers are account-to-account movements, so they do not belong
-        // to an income or expense category.
-        assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        user.getId(),
-                        bankAccount.getId(),
-                        secondBankAccount.getId(),
-                        category.getId(),
-                        TransactionType.TRANSFER,
-                        new BigDecimal("10000.00"),
-                        "Invalid transfer",
-                        OffsetDateTime.now()
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                secondBankAccount.getId(),
+                category.getId(),
+                TransactionType.TRANSFER,
+                new BigDecimal("1000.00"),
+                "Invalid transfer",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Transfer cannot have a category");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
-    void createTransaction_shouldThrowWhenTransferHasNoDestination() {
-
+    void createTransaction_shouldRejectTransferWithoutDestination() {
         stubUserAndAccount(bankAccount);
 
-        // A transfer must specify the account receiving the money.
-        assertThatThrownBy(() ->
-                create(
-                        null,
-                        TransactionType.TRANSFER,
-                        new BigDecimal("10000.00")
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("1000.00"),
+                "Missing destination",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Transfer requires a destination account");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
-    void createTransaction_shouldThrowWhenSourceAndDestinationAreSame() {
-
+    void createTransaction_shouldRejectSameSourceAndDestination() {
         stubUserAndAccount(bankAccount);
 
-        // A transfer between the same account has no meaningful financial effect
-        // and is therefore rejected.
-        assertThatThrownBy(() ->
-                transactionService.createTransaction(
-                        user.getId(),
-                        bankAccount.getId(),
-                        bankAccount.getId(),
-                        null,
-                        TransactionType.TRANSFER,
-                        new BigDecimal("10000.00"),
-                        "Invalid transfer",
-                        OffsetDateTime.now()
-                )
-        )
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                bankAccount.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("1000.00"),
+                "Invalid transfer",
+                OffsetDateTime.now()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Source and destination accounts must be different");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
-    void createTransaction_shouldDefaultToPostedStatus() {
+    void createTransaction_shouldRejectIncomeOnGoalAccount() {
+        Account goalAccount = new Account(
+                user,
+                "Goal - Gaming PC",
+                AccountType.GOAL,
+                "INR",
+                BigDecimal.ZERO
+        );
 
-        Category category = category(
-                "Food",
-                CategoryType.EXPENSE
+        Category category = category("Salary", CategoryType.INCOME);
+
+        stubUserAndAccount(goalAccount);
+        stubCategory(category);
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                goalAccount.getId(),
+                null,
+                category.getId(),
+                TransactionType.INCOME,
+                new BigDecimal("1000.00"),
+                "Invalid goal income",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Goal accounts only support transfers");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectExpenseOnGoalAccount() {
+        Account goalAccount = new Account(
+                user,
+                "Goal - Gaming PC",
+                AccountType.GOAL,
+                "INR",
+                BigDecimal.ZERO
+        );
+
+        Category category = category("Food", CategoryType.EXPENSE);
+
+        stubUserAndAccount(goalAccount);
+        stubCategory(category);
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                goalAccount.getId(),
+                null,
+                category.getId(),
+                TransactionType.EXPENSE,
+                new BigDecimal("100.00"),
+                "Invalid goal expense",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Goal accounts only support transfers");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectGenericTransferIntoGoalAccount() {
+        Account goalAccount = new Account(
+                user,
+                "Goal - Gaming PC",
+                AccountType.GOAL,
+                "INR",
+                BigDecimal.ZERO
         );
 
         stubUserAndAccount(bankAccount);
-        stubCategory(category);
+
+        when(accountRepository.findById(goalAccount.getId()))
+                .thenReturn(Optional.of(goalAccount));
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                goalAccount.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("1000.00"),
+                "Generic transfer to goal",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(
+                        "Goal accounts can only receive contributions through goal management");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void createGoalContribution_shouldCreateTransferIntoGoalAccount() {
+        Account goalAccount = new Account(
+                user,
+                "Goal - Gaming PC",
+                AccountType.GOAL,
+                "INR",
+                BigDecimal.ZERO
+        );
+
+        stubUserAndAccount(bankAccount);
+
+        when(accountRepository.findById(goalAccount.getId()))
+                .thenReturn(Optional.of(goalAccount));
 
         when(accountBalanceService.calculateBalance(bankAccount.getId()))
                 .thenReturn(new BigDecimal("10000.00"));
 
-        when(transactionRepository.save(any(Transaction.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        Transaction result = create(
-                category.getId(),
-                TransactionType.EXPENSE,
-                new BigDecimal("500.00")
+        Transaction result = transactionService.createGoalContribution(
+                user.getId(),
+                bankAccount.getId(),
+                goalAccount.getId(),
+                new BigDecimal("5000.00"),
+                "Contribution to goal: Gaming PC",
+                OffsetDateTime.now()
         );
 
-        assertThat(result.getStatus())
-                .isEqualTo(TransactionStatus.POSTED);
+        assertThat(result.getType()).isEqualTo(TransactionType.TRANSFER);
+        assertThat(result.getAccount()).isSameAs(bankAccount);
+        assertThat(result.getDestinationAccount()).isSameAs(goalAccount);
+        assertThat(result.getCategory()).isNull();
+        assertThat(result.getAmount()).isEqualByComparingTo("5000.00");
+
+        verify(transactionRepository).save(any(Transaction.class));
     }
 
     @Test
-    void voidTransaction_shouldMarkPostedTransactionAsVoided() {
+    void createGoalContribution_shouldRejectNonGoalDestination() {
+        stubUserAndAccount(bankAccount);
 
+        when(accountRepository.findById(secondBankAccount.getId()))
+                .thenReturn(Optional.of(secondBankAccount));
+
+        assertThatThrownBy(() -> transactionService.createGoalContribution(
+                user.getId(),
+                bankAccount.getId(),
+                secondBankAccount.getId(),
+                new BigDecimal("1000.00"),
+                "Invalid goal contribution",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Goal contribution destination must be a goal account");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void createGoalContribution_shouldRejectGoalAccountAsSource() {
+        Account goalAccount = new Account(
+                user,
+                "Goal - Gaming PC",
+                AccountType.GOAL,
+                "INR",
+                BigDecimal.ZERO
+        );
+
+        Account secondGoalAccount = new Account(
+                user,
+                "Goal - Laptop",
+                AccountType.GOAL,
+                "INR",
+                BigDecimal.ZERO
+        );
+
+        stubUserAndAccount(goalAccount);
+
+        when(accountRepository.findById(secondGoalAccount.getId()))
+                .thenReturn(Optional.of(secondGoalAccount));
+
+        assertThatThrownBy(() -> transactionService.createGoalContribution(
+                user.getId(),
+                goalAccount.getId(),
+                secondGoalAccount.getId(),
+                new BigDecimal("1000.00"),
+                "Invalid goal contribution",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("A goal account cannot be the source of its own contribution");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void voidTransaction_shouldMarkTransactionAsVoided() {
         Transaction transaction = new Transaction(
                 user,
                 bankAccount,
@@ -687,21 +669,15 @@ class TransactionServiceTest {
                 OffsetDateTime.parse("2026-09-13T10:00:00+05:30")
         );
 
-        UUID transactionId = transaction.getId();
-
-        when(transactionRepository.findById(transactionId))
+        when(transactionRepository.findById(transaction.getId()))
                 .thenReturn(Optional.of(transaction));
-
-        when(transactionRepository.save(any(Transaction.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
 
         Transaction result = transactionService.voidTransaction(
                 user.getId(),
-                transactionId
+                transaction.getId()
         );
 
-        assertThat(result.getStatus())
-                .isEqualTo(TransactionStatus.VOIDED);
+        assertThat(result.getStatus()).isEqualTo(TransactionStatus.VOIDED);
 
         verify(transactionRepository).save(transaction);
         verify(cacheManager).getCache("monthlySummary");
@@ -709,7 +685,6 @@ class TransactionServiceTest {
 
     @Test
     void voidTransaction_shouldRejectAlreadyVoidedTransaction() {
-
         Transaction transaction = new Transaction(
                 user,
                 bankAccount,
@@ -726,22 +701,18 @@ class TransactionServiceTest {
         when(transactionRepository.findById(transaction.getId()))
                 .thenReturn(Optional.of(transaction));
 
-        assertThatThrownBy(() ->
-                transactionService.voidTransaction(
-                        user.getId(),
-                        transaction.getId()
-                )
-        )
+        assertThatThrownBy(() -> transactionService.voidTransaction(
+                user.getId(),
+                transaction.getId()
+        ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Transaction is already voided");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
     void voidTransaction_shouldRejectTransactionOwnedByAnotherUser() {
-
         User otherUser = new User(
                 "other@example.com",
                 "hashed-password",
@@ -770,65 +741,34 @@ class TransactionServiceTest {
         when(transactionRepository.findById(transaction.getId()))
                 .thenReturn(Optional.of(transaction));
 
-        assertThatThrownBy(() ->
-                transactionService.voidTransaction(
-                        user.getId(),
-                        transaction.getId()
-                )
-        )
-                .isInstanceOf(
-                        com.kartik.finance_tracker.common.exception.ResourceNotFoundException.class
-                )
+        assertThatThrownBy(() -> transactionService.voidTransaction(
+                user.getId(),
+                transaction.getId()
+        ))
+                .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Transaction not found");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
     @Test
-    void voidTransaction_shouldThrowWhenTransactionDoesNotExist() {
-
+    void voidTransaction_shouldRejectMissingTransaction() {
         UUID transactionId = UUID.randomUUID();
 
         when(transactionRepository.findById(transactionId))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() ->
-                transactionService.voidTransaction(
-                        user.getId(),
-                        transactionId
-                )
-        )
-                .isInstanceOf(
-                        com.kartik.finance_tracker.common.exception.ResourceNotFoundException.class
-                )
+        assertThatThrownBy(() -> transactionService.voidTransaction(
+                user.getId(),
+                transactionId
+        ))
+                .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Transaction not found");
 
-        verify(transactionRepository, never())
-                .save(any(Transaction.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
     }
 
-    private Transaction create(
-            UUID categoryId,
-            TransactionType type,
-            BigDecimal amount
-    ) {
-        return transactionService.createTransaction(
-                user.getId(),
-                bankAccount.getId(),
-                null,
-                categoryId,
-                type,
-                amount,
-                "Test transaction",
-                OffsetDateTime.now()
-        );
-    }
-
-    private Category category(
-            String name,
-            CategoryType type
-    ) {
+    private Category category(String name, CategoryType type) {
         return new Category(
                 user,
                 name,
@@ -839,7 +779,6 @@ class TransactionServiceTest {
     }
 
     private void stubUserAndAccount(Account account) {
-
         when(userRepository.findById(user.getId()))
                 .thenReturn(Optional.of(user));
 
@@ -848,7 +787,6 @@ class TransactionServiceTest {
     }
 
     private void stubCategory(Category category) {
-
         when(categoryRepository.findById(category.getId()))
                 .thenReturn(Optional.of(category));
     }

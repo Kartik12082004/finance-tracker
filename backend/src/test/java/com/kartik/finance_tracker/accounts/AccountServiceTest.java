@@ -1,12 +1,10 @@
+
 package com.kartik.finance_tracker.accounts;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -34,11 +32,11 @@ class AccountServiceTest {
 
     @BeforeEach
     void setUp() {
-
         accountRepository = mock(AccountRepository.class);
         userRepository = mock(UserRepository.class);
         transactionRepository = mock(TransactionRepository.class);
-        investmentTransactionRepository = mock(InvestmentTransactionRepository.class);
+        investmentTransactionRepository =
+                mock(InvestmentTransactionRepository.class);
 
         accountService = new AccountService(
                 accountRepository,
@@ -47,7 +45,6 @@ class AccountServiceTest {
                 investmentTransactionRepository
         );
 
-        // Use one test user for the account creation and ownership scenarios.
         user = new User(
                 "kartik@example.com",
                 "hashedpassword",
@@ -57,15 +54,12 @@ class AccountServiceTest {
 
     @Test
     void createAccount_shouldSaveAndReturnAccount() {
-
         UUID userId = user.getId();
         BigDecimal openingBalance = new BigDecimal("25000.00");
 
-        // Account creation requires an existing user.
         when(userRepository.findById(userId))
                 .thenReturn(Optional.of(user));
 
-        // Mock the repository response to represent a successfully saved account.
         Account savedAccount = new Account(
                 user,
                 "HDFC Savings",
@@ -85,62 +79,48 @@ class AccountServiceTest {
                 openingBalance
         );
 
-        // The service should return the account produced by the repository.
         assertThat(result).isSameAs(savedAccount);
-
-        // Verify that the service looked up the correct user before creating the account.
         verify(userRepository).findById(userId);
 
         ArgumentCaptor<Account> accountCaptor =
                 ArgumentCaptor.forClass(Account.class);
 
-        // Capture the account passed to the repository so we can verify its contents.
         verify(accountRepository).save(accountCaptor.capture());
 
         Account saved = accountCaptor.getValue();
 
-        // The new account should belong to the requested user.
         assertThat(saved.getUser()).isSameAs(user);
-
-        // Verify that the supplied account details are preserved.
         assertThat(saved.getName()).isEqualTo("HDFC Savings");
         assertThat(saved.getType()).isEqualTo(AccountType.BANK);
         assertThat(saved.getCurrency()).isEqualTo("INR");
-
-        // The opening balance supplied by the user must be preserved.
         assertThat(saved.getOpeningBalance())
                 .isEqualByComparingTo("25000.00");
-
-        // Entity construction should generate the ID and timestamps.
         assertThat(saved.getId()).isNotNull();
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(saved.getUpdatedAt()).isNotNull();
     }
 
     @Test
-    void createAccount_shouldRejectOpeningBalanceWithMoreThanTwoDecimalPlaces() {
-
-        UUID userId = user.getId();
-        BigDecimal openingBalance = new BigDecimal("25000.123");
-
+    void createAccount_shouldRejectGoalAccountType() {
         assertThatThrownBy(() ->
                 accountService.createAccount(
-                        userId,
-                        "HDFC Savings",
-                        AccountType.BANK,
+                        user.getId(),
+                        "Goal - Gaming PC",
+                        AccountType.GOAL,
                         "INR",
-                        openingBalance
+                        BigDecimal.ZERO
                 ))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Amount cannot have more than 2 decimal places");
+                .hasMessage(
+                        "Goal accounts can only be created through goal management"
+                );
 
-        // Invalid financial values must never reach the database.
+        verifyNoInteractions(userRepository);
         verify(accountRepository, never()).save(any(Account.class));
     }
 
     @Test
     void getAccount_shouldReturnAccountWhenItBelongsToUser() {
-
         UUID userId = user.getId();
         UUID accountId = UUID.randomUUID();
 
@@ -155,54 +135,99 @@ class AccountServiceTest {
         when(accountRepository.findByIdAndUser_Id(accountId, userId))
                 .thenReturn(Optional.of(account));
 
-        Account result = accountService.getAccount(
-                userId,
-                accountId
-        );
+        Account result = accountService.getAccount(userId, accountId);
 
-        // The service should return the account when the account
-        // belongs to the authenticated user.
         assertThat(result).isSameAs(account);
 
-        // The repository lookup must be scoped by both IDs.
         verify(accountRepository)
                 .findByIdAndUser_Id(accountId, userId);
     }
 
     @Test
     void getAccount_shouldRejectAccountOwnedByAnotherUser() {
-
         UUID userId = user.getId();
         UUID anotherUsersAccountId = UUID.randomUUID();
 
-        // Returning an empty result represents an account that either
-        // does not exist or does not belong to the authenticated user.
         when(accountRepository.findByIdAndUser_Id(
                 anotherUsersAccountId,
                 userId
         )).thenReturn(Optional.empty());
 
-        // A user must not be able to access another user's account
-        // by supplying that account's ID.
         assertThatThrownBy(() ->
-                accountService.getAccount(
-                        userId,
-                        anotherUsersAccountId
-                ))
+                accountService.getAccount(userId, anotherUsersAccountId))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Account not found");
 
-        // Verify that the ownership-scoped query was actually used.
         verify(accountRepository)
-                .findByIdAndUser_Id(
-                        anotherUsersAccountId,
-                        userId
+                .findByIdAndUser_Id(anotherUsersAccountId, userId);
+    }
+
+    @Test
+    void updateAccount_shouldRejectUpdatingGoalAccount() {
+        UUID userId = user.getId();
+        UUID accountId = UUID.randomUUID();
+
+        Account goalAccount = new Account(
+                user,
+                "Goal - Gaming PC",
+                AccountType.GOAL,
+                "INR",
+                BigDecimal.ZERO
+        );
+
+        when(accountRepository.findByIdAndUser_Id(accountId, userId))
+                .thenReturn(Optional.of(goalAccount));
+
+        assertThatThrownBy(() ->
+                accountService.updateAccount(
+                        userId,
+                        accountId,
+                        "Renamed Goal",
+                        AccountType.GOAL,
+                        "INR"
+                ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(
+                        "Goal accounts cannot be updated through account management"
                 );
+
+        verify(accountRepository, never()).save(any(Account.class));
+    }
+
+    @Test
+    void updateAccount_shouldRejectConvertingNormalAccountToGoalAccount() {
+        UUID userId = user.getId();
+        UUID accountId = UUID.randomUUID();
+
+        Account account = new Account(
+                user,
+                "HDFC Savings",
+                AccountType.BANK,
+                "INR",
+                new BigDecimal("25000.00")
+        );
+
+        when(accountRepository.findByIdAndUser_Id(accountId, userId))
+                .thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() ->
+                accountService.updateAccount(
+                        userId,
+                        accountId,
+                        "Goal - Gaming PC",
+                        AccountType.GOAL,
+                        "INR"
+                ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(
+                        "An account cannot be converted into a goal account"
+                );
+
+        verify(accountRepository, never()).save(any(Account.class));
     }
 
     @Test
     void deleteAccount_shouldDeleteAccountWhenItHasNoFinancialHistory() {
-
         UUID userId = user.getId();
         UUID accountId = UUID.randomUUID();
 
@@ -217,23 +242,19 @@ class AccountServiceTest {
         when(accountRepository.findByIdAndUser_Id(accountId, userId))
                 .thenReturn(Optional.of(account));
 
-        // The account is safe to delete only when no normal transaction references it.
         when(transactionRepository.existsByAccount_IdOrDestinationAccount_Id(
                 accountId,
                 accountId
         )).thenReturn(false);
 
-        // Investment transactions also count as financial history.
         when(investmentTransactionRepository.existsByAccount_Id(accountId))
                 .thenReturn(false);
 
         accountService.deleteAccount(userId, accountId);
 
-        // Ownership must be verified before any deletion is attempted.
         verify(accountRepository)
                 .findByIdAndUser_Id(accountId, userId);
 
-        // Both sources of financial history must be checked.
         verify(transactionRepository)
                 .existsByAccount_IdOrDestinationAccount_Id(
                         accountId,
@@ -243,13 +264,11 @@ class AccountServiceTest {
         verify(investmentTransactionRepository)
                 .existsByAccount_Id(accountId);
 
-        // Only an account with no financial history should be deleted.
         verify(accountRepository).delete(account);
     }
 
     @Test
     void deleteAccount_shouldRejectAccountWithTransactions() {
-
         UUID userId = user.getId();
         UUID accountId = UUID.randomUUID();
 
@@ -264,27 +283,23 @@ class AccountServiceTest {
         when(accountRepository.findByIdAndUser_Id(accountId, userId))
                 .thenReturn(Optional.of(account));
 
-        // The account is referenced by at least one normal transaction.
         when(transactionRepository.existsByAccount_IdOrDestinationAccount_Id(
                 accountId,
                 accountId
         )).thenReturn(true);
 
         assertThatThrownBy(() ->
-                accountService.deleteAccount(userId, accountId)
-        )
+                accountService.deleteAccount(userId, accountId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(
                         "Account cannot be deleted because it has financial transactions"
                 );
 
-        // Financial history must never be deleted implicitly.
         verify(accountRepository, never()).delete(any(Account.class));
     }
 
     @Test
     void deleteAccount_shouldRejectAccountWithInvestmentTransactions() {
-
         UUID userId = user.getId();
         UUID accountId = UUID.randomUUID();
 
@@ -299,7 +314,6 @@ class AccountServiceTest {
         when(accountRepository.findByIdAndUser_Id(accountId, userId))
                 .thenReturn(Optional.of(account));
 
-        // No normal transactions, but investment history exists.
         when(transactionRepository.existsByAccount_IdOrDestinationAccount_Id(
                 accountId,
                 accountId
@@ -309,20 +323,45 @@ class AccountServiceTest {
                 .thenReturn(true);
 
         assertThatThrownBy(() ->
-                accountService.deleteAccount(userId, accountId)
-        )
+                accountService.deleteAccount(userId, accountId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(
                         "Account cannot be deleted because it has financial transactions"
                 );
 
-        // Investment history must also prevent account deletion.
         verify(accountRepository, never()).delete(any(Account.class));
     }
 
     @Test
-    void deleteAccount_shouldThrowWhenAccountDoesNotBelongToUser() {
+    void deleteAccount_shouldRejectGoalAccount() {
+        UUID userId = user.getId();
+        UUID accountId = UUID.randomUUID();
 
+        Account goalAccount = new Account(
+                user,
+                "Goal - Gaming PC",
+                AccountType.GOAL,
+                "INR",
+                BigDecimal.ZERO
+        );
+
+        when(accountRepository.findByIdAndUser_Id(accountId, userId))
+                .thenReturn(Optional.of(goalAccount));
+
+        assertThatThrownBy(() ->
+                accountService.deleteAccount(userId, accountId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(
+                        "Goal accounts cannot be deleted through account management"
+                );
+
+        verify(accountRepository, never()).delete(any(Account.class));
+        verifyNoInteractions(transactionRepository);
+        verifyNoInteractions(investmentTransactionRepository);
+    }
+
+    @Test
+    void deleteAccount_shouldThrowWhenAccountDoesNotBelongToUser() {
         UUID userId = user.getId();
         UUID accountId = UUID.randomUUID();
 
@@ -330,13 +369,13 @@ class AccountServiceTest {
                 .thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                accountService.deleteAccount(userId, accountId)
-        )
+                accountService.deleteAccount(userId, accountId))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Account not found");
 
-        // Nothing should be deleted when the ownership check fails.
-        verify(accountRepository).findByIdAndUser_Id(accountId, userId);
+        verify(accountRepository)
+                .findByIdAndUser_Id(accountId, userId);
+
         verify(accountRepository, never()).delete(any(Account.class));
     }
 }

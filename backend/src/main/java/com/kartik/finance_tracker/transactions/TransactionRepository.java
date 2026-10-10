@@ -17,6 +17,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             UUID destinationAccountId
     );
 
+    boolean existsByCategory_Id(UUID categoryId);
+
     boolean existsByAccount_IdOrDestinationAccount_Id(
             UUID accountId,
             UUID destinationAccountId

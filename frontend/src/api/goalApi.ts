@@ -24,12 +24,17 @@ export async function updateGoal(
 
 export async function contributeToGoal(
   goalId: string,
+  sourceAccountId: string,
   amount: number,
 ): Promise<Goal> {
   return apiRequest<Goal>(
-    `http://localhost:8080/api/goals/${goalId}/contributions?amount=${amount}`,
+    `http://localhost:8080/api/goals/${goalId}/contributions`,
     {
       method: "POST",
+      body: JSON.stringify({
+        sourceAccountId,
+        amount,
+      }),
     },
   );
 }

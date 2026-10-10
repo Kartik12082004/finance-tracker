@@ -13,7 +13,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -41,6 +40,7 @@ class BudgetControllerTest {
 
     @BeforeEach
     void setUp() {
+
         budgetService = mock(BudgetService.class);
         currentUserService = mock(CurrentUserService.class);
 
@@ -59,43 +59,32 @@ class BudgetControllerTest {
 
     @Test
     void shouldCreateBudget() throws Exception {
+
         UUID budgetId = UUID.randomUUID();
 
-        BudgetResponse response = new BudgetResponse(
-                budgetId,
-                categoryId,
-                "Food",
-                new BigDecimal("10000.00"),
-                new BigDecimal("6350.00"),
-                new BigDecimal("3650.00"),
-                new BigDecimal("63.50"),
-                BudgetPeriod.MONTHLY,
-                LocalDate.of(2026, 9, 1),
-                LocalDate.of(2026, 9, 30),
-                OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
+        BudgetResponse response = createBudgetResponse(budgetId);
 
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
         when(budgetService.createBudget(
                 eq(userId),
+                eq(2026),
+                eq(10),
                 any()
         )).thenReturn(response);
 
         String request = """
                 {
                     "categoryId": "%s",
-                    "amount": 10000.00,
-                    "period": "MONTHLY",
-                    "startDate": "2026-09-01",
-                    "endDate": "2026-09-30"
+                    "amount": 10000.00
                 }
                 """.formatted(categoryId);
 
         mockMvc.perform(
                 post("/api/budgets")
+                        .param("year", "2026")
+                        .param("month", "10")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
@@ -107,79 +96,97 @@ class BudgetControllerTest {
         .andExpect(jsonPath("$.spentAmount").value(6350.00))
         .andExpect(jsonPath("$.remainingAmount").value(3650.00))
         .andExpect(jsonPath("$.spendingPercentage").value(63.50))
-        .andExpect(jsonPath("$.period").value("MONTHLY"));
+        .andExpect(jsonPath("$.year").value(2026))
+        .andExpect(jsonPath("$.month").value(10));
 
-        verify(budgetService).createBudget(eq(userId), any());
+        verify(currentUserService)
+                .getCurrentUserId();
+
+        verify(budgetService).createBudget(
+                eq(userId),
+                eq(2026),
+                eq(10),
+                any()
+        );
     }
 
     @Test
-    void shouldGetAllBudgets() throws Exception {
-        BudgetResponse response = createBudgetResponse();
+    void shouldGetBudgetsForMonth() throws Exception {
+
+        BudgetResponse response =
+                createBudgetResponse(UUID.randomUUID());
 
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
-        when(budgetService.getBudgets(userId))
-                .thenReturn(List.of(response));
+        when(budgetService.getBudgetsForMonth(
+                userId,
+                2026,
+                10
+        )).thenReturn(List.of(response));
 
         mockMvc.perform(
                 get("/api/budgets")
+                        .param("year", "2026")
+                        .param("month", "10")
         )
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.length()").value(1))
-        .andExpect(jsonPath("$[0].categoryName").value("Food"))
-        .andExpect(jsonPath("$[0].amount").value(10000.00))
-        .andExpect(jsonPath("$[0].spentAmount").value(6350.00))
-        .andExpect(jsonPath("$[0].remainingAmount").value(3650.00))
-        .andExpect(jsonPath("$[0].spendingPercentage").value(63.50));
+        .andExpect(jsonPath("$[0].categoryId")
+                .value(categoryId.toString()))
+        .andExpect(jsonPath("$[0].categoryName")
+                .value("Food"))
+        .andExpect(jsonPath("$[0].amount")
+                .value(10000.00))
+        .andExpect(jsonPath("$[0].spentAmount")
+                .value(6350.00))
+        .andExpect(jsonPath("$[0].remainingAmount")
+                .value(3650.00))
+        .andExpect(jsonPath("$[0].spendingPercentage")
+                .value(63.50))
+        .andExpect(jsonPath("$[0].year")
+                .value(2026))
+        .andExpect(jsonPath("$[0].month")
+                .value(10));
 
-        verify(budgetService).getBudgets(userId);
+        verify(currentUserService)
+                .getCurrentUserId();
+
+        verify(budgetService)
+                .getBudgetsForMonth(userId, 2026, 10);
     }
 
     @Test
-    void shouldGetBudgetsForDate() throws Exception {
-        LocalDate date = LocalDate.of(2026, 9, 15);
-
-        BudgetResponse response = createBudgetResponse();
+    void shouldReturnEmptyListWhenNoBudgetsExist() throws Exception {
 
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
-        when(budgetService.getBudgetsForDate(userId, date))
-                .thenReturn(List.of(response));
+        when(budgetService.getBudgetsForMonth(
+                userId,
+                2026,
+                10
+        )).thenReturn(List.of());
 
         mockMvc.perform(
                 get("/api/budgets")
-                        .param("date", "2026-09-15")
+                        .param("year", "2026")
+                        .param("month", "10")
         )
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.length()").value(1))
-        .andExpect(jsonPath("$[0].categoryName").value("Food"))
-        .andExpect(jsonPath("$[0].spentAmount").value(6350.00))
-        .andExpect(jsonPath("$[0].remainingAmount").value(3650.00))
-        .andExpect(jsonPath("$[0].spendingPercentage").value(63.50));
+        .andExpect(jsonPath("$").isEmpty());
 
-        verify(budgetService).getBudgetsForDate(userId, date);
+        verify(budgetService)
+                .getBudgetsForMonth(userId, 2026, 10);
     }
 
     @Test
     void shouldUpdateBudget() throws Exception {
+
         UUID budgetId = UUID.randomUUID();
 
-        BudgetResponse response = new BudgetResponse(
-                budgetId,
-                categoryId,
-                "Food",
-                new BigDecimal("15000.00"),
-                new BigDecimal("6350.00"),
-                new BigDecimal("8650.00"),
-                new BigDecimal("42.33"),
-                BudgetPeriod.MONTHLY,
-                LocalDate.of(2026, 9, 1),
-                LocalDate.of(2026, 9, 30),
-                OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
+        BudgetResponse response =
+                createBudgetResponse(budgetId);
 
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
@@ -192,25 +199,23 @@ class BudgetControllerTest {
 
         String request = """
                 {
-                    "amount": 15000.00,
-                    "period": "MONTHLY",
-                    "startDate": "2026-09-01",
-                    "endDate": "2026-09-30"
+                    "amount": 12000.00
                 }
                 """;
 
         mockMvc.perform(
-                put("/api/budgets/{id}", budgetId)
+                put("/api/budgets/{budgetId}", budgetId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.id").value(budgetId.toString()))
-        .andExpect(jsonPath("$.amount").value(15000.00))
-        .andExpect(jsonPath("$.categoryName").value("Food"))
-        .andExpect(jsonPath("$.spentAmount").value(6350.00))
-        .andExpect(jsonPath("$.remainingAmount").value(8650.00))
-        .andExpect(jsonPath("$.spendingPercentage").value(42.33));
+        .andExpect(jsonPath("$.id")
+                .value(budgetId.toString()))
+        .andExpect(jsonPath("$.amount")
+                .value(10000.00));
+
+        verify(currentUserService)
+                .getCurrentUserId();
 
         verify(budgetService).updateBudget(
                 eq(userId),
@@ -221,35 +226,37 @@ class BudgetControllerTest {
 
     @Test
     void shouldDeleteBudget() throws Exception {
+
         UUID budgetId = UUID.randomUUID();
 
         when(currentUserService.getCurrentUserId())
                 .thenReturn(userId);
 
         mockMvc.perform(
-                delete("/api/budgets/{id}", budgetId)
+                delete("/api/budgets/{budgetId}", budgetId)
         )
         .andExpect(status().isNoContent());
 
-        verify(budgetService).deleteBudget(
-                userId,
-                budgetId
-        );
+        verify(currentUserService)
+                .getCurrentUserId();
+
+        verify(budgetService)
+                .deleteBudget(userId, budgetId);
     }
 
     @Test
     void shouldRejectMissingCategory() throws Exception {
+
         String request = """
                 {
-                    "amount": 10000.00,
-                    "period": "MONTHLY",
-                    "startDate": "2026-09-01",
-                    "endDate": "2026-09-30"
+                    "amount": 10000.00
                 }
                 """;
 
         mockMvc.perform(
                 post("/api/budgets")
+                        .param("year", "2026")
+                        .param("month", "10")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
@@ -258,17 +265,17 @@ class BudgetControllerTest {
 
     @Test
     void shouldRejectMissingAmount() throws Exception {
+
         String request = """
                 {
-                    "categoryId": "%s",
-                    "period": "MONTHLY",
-                    "startDate": "2026-09-01",
-                    "endDate": "2026-09-30"
+                    "categoryId": "%s"
                 }
                 """.formatted(categoryId);
 
         mockMvc.perform(
                 post("/api/budgets")
+                        .param("year", "2026")
+                        .param("month", "10")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
@@ -277,18 +284,18 @@ class BudgetControllerTest {
 
     @Test
     void shouldRejectNonPositiveAmount() throws Exception {
+
         String request = """
                 {
                     "categoryId": "%s",
-                    "amount": 0,
-                    "period": "MONTHLY",
-                    "startDate": "2026-09-01",
-                    "endDate": "2026-09-30"
+                    "amount": 0
                 }
                 """.formatted(categoryId);
 
         mockMvc.perform(
                 post("/api/budgets")
+                        .param("year", "2026")
+                        .param("month", "10")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
@@ -296,18 +303,18 @@ class BudgetControllerTest {
     }
 
     @Test
-    void shouldRejectMissingPeriod() throws Exception {
+    void shouldRejectMissingYear() throws Exception {
+
         String request = """
                 {
                     "categoryId": "%s",
-                    "amount": 10000.00,
-                    "startDate": "2026-09-01",
-                    "endDate": "2026-09-30"
+                    "amount": 10000.00
                 }
                 """.formatted(categoryId);
 
         mockMvc.perform(
                 post("/api/budgets")
+                        .param("month", "10")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
@@ -315,18 +322,18 @@ class BudgetControllerTest {
     }
 
     @Test
-    void shouldRejectMissingStartDate() throws Exception {
+    void shouldRejectMissingMonth() throws Exception {
+
         String request = """
                 {
                     "categoryId": "%s",
-                    "amount": 10000.00,
-                    "period": "MONTHLY",
-                    "endDate": "2026-09-30"
+                    "amount": 10000.00
                 }
                 """.formatted(categoryId);
 
         mockMvc.perform(
                 post("/api/budgets")
+                        .param("year", "2026")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
@@ -334,36 +341,39 @@ class BudgetControllerTest {
     }
 
     @Test
-    void shouldRejectMissingEndDate() throws Exception {
-        String request = """
-                {
-                    "categoryId": "%s",
-                    "amount": 10000.00,
-                    "period": "MONTHLY",
-                    "startDate": "2026-09-01"
-                }
-                """.formatted(categoryId);
+    void shouldRejectInvalidYear() throws Exception {
 
         mockMvc.perform(
-                post("/api/budgets")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(request)
+                get("/api/budgets")
+                        .param("year", "abc")
+                        .param("month", "10")
         )
         .andExpect(status().isBadRequest());
     }
 
-    private BudgetResponse createBudgetResponse() {
+    @Test
+    void shouldRejectInvalidMonth() throws Exception {
+
+        mockMvc.perform(
+                get("/api/budgets")
+                        .param("year", "2026")
+                        .param("month", "abc")
+        )
+        .andExpect(status().isBadRequest());
+    }
+
+    private BudgetResponse createBudgetResponse(UUID budgetId) {
+
         return new BudgetResponse(
-                UUID.randomUUID(),
+                budgetId,
                 categoryId,
                 "Food",
                 new BigDecimal("10000.00"),
                 new BigDecimal("6350.00"),
                 new BigDecimal("3650.00"),
                 new BigDecimal("63.50"),
-                BudgetPeriod.MONTHLY,
-                LocalDate.of(2026, 9, 1),
-                LocalDate.of(2026, 9, 30),
+                2026,
+                10,
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );

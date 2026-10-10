@@ -1,3 +1,4 @@
+
 package com.kartik.finance_tracker.recurring;
 
 import java.time.LocalDate;
@@ -45,6 +46,16 @@ public class RecurringTransactionGenerationService {
     private void generateTransaction(
             RecurringTransaction recurringTransaction
     ) {
+        /*
+         * If the next occurrence was marked to be skipped,
+         * consume the flag and advance the schedule without
+         * creating a transaction.
+         */
+        if (recurringTransaction.consumeSkipForDueOccurrence()) {
+            recurringTransactionRepository.save(recurringTransaction);
+            return;
+        }
+
         LocalDate occurrenceDate =
                 recurringTransaction.getNextOccurrence();
 

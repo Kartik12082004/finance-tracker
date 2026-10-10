@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import com.kartik.finance_tracker.goals.dto.CreateGoalRequest;
+import com.kartik.finance_tracker.goals.dto.GoalContributionRequest;
 import com.kartik.finance_tracker.goals.dto.GoalResponse;
 import com.kartik.finance_tracker.goals.dto.UpdateGoalRequest;
 import com.kartik.finance_tracker.security.CurrentUserService;
@@ -28,6 +29,7 @@ class GoalControllerTest {
 
     private UUID userId;
     private UUID goalId;
+    private UUID accountId;
 
     private GoalResponse goalResponse;
 
@@ -43,10 +45,12 @@ class GoalControllerTest {
 
         userId = UUID.randomUUID();
         goalId = UUID.randomUUID();
+        accountId = UUID.randomUUID();
 
         goalResponse = new GoalResponse(
                 goalId,
                 "Gaming PC",
+                accountId,
                 new BigDecimal("150000.00"),
                 BigDecimal.ZERO,
                 LocalDate.of(2027, 12, 31),
@@ -55,8 +59,7 @@ class GoalControllerTest {
                 null
         );
 
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
+        when(currentUserService.getCurrentUserId()).thenReturn(userId);
     }
 
     @Test
@@ -75,6 +78,7 @@ class GoalControllerTest {
 
         assertEquals(HttpStatus.CREATED, response.getStatusCode());
         assertEquals(goalResponse, response.getBody());
+        assertEquals(accountId, response.getBody().accountId());
 
         verify(goalService).createGoal(userId, request);
     }
@@ -111,22 +115,26 @@ class GoalControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(goalResponse, response.getBody());
 
-        verify(goalService).updateGoal(
-                userId,
-                goalId,
-                request
-        );
+        verify(goalService).updateGoal(userId, goalId, request);
     }
 
     @Test
-    void shouldContributeToGoal() {
+    void shouldContributeToGoalUsingSourceAccount() {
+        UUID sourceAccountId = UUID.randomUUID();
         BigDecimal amount = new BigDecimal("50000.00");
 
-        when(goalService.contribute(userId, goalId, amount))
-                .thenReturn(goalResponse);
+        GoalContributionRequest request =
+                new GoalContributionRequest(sourceAccountId, amount);
+
+        when(goalService.contribute(
+                userId,
+                goalId,
+                sourceAccountId,
+                amount
+        )).thenReturn(goalResponse);
 
         ResponseEntity<GoalResponse> response =
-                goalController.contribute(goalId, amount);
+                goalController.contribute(goalId, request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(goalResponse, response.getBody());
@@ -134,6 +142,7 @@ class GoalControllerTest {
         verify(goalService).contribute(
                 userId,
                 goalId,
+                sourceAccountId,
                 amount
         );
     }

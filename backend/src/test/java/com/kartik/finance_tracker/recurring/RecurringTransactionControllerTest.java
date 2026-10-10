@@ -1,3 +1,4 @@
+
 package com.kartik.finance_tracker.recurring;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -45,9 +46,8 @@ class RecurringTransactionControllerTest {
 
     @BeforeEach
     void setUp() {
-        recurringTransactionService = mock(
-                RecurringTransactionService.class
-        );
+        recurringTransactionService =
+                mock(RecurringTransactionService.class);
         currentUserService = mock(CurrentUserService.class);
 
         RecurringTransactionController controller =
@@ -68,15 +68,16 @@ class RecurringTransactionControllerTest {
 
     @Test
     void shouldCreateRecurringTransaction() throws Exception {
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
+        when(currentUserService.getCurrentUserId()).thenReturn(userId);
 
-        RecurringTransactionResponse response =
-                createResponse();
+        RecurringTransactionResponse response = createResponse(
+                LocalDate.now().plusDays(2),
+                false,
+                true
+        );
 
         when(recurringTransactionService.createRecurringTransaction(
-                eq(userId),
-                any()
+                eq(userId), any()
         )).thenReturn(response);
 
         String request = """
@@ -88,60 +89,57 @@ class RecurringTransactionControllerTest {
                     "description": "Netflix",
                     "frequencyUnit": "MONTH",
                     "frequencyInterval": 1,
-                    "nextOccurrence": "2026-10-01"
+                    "nextOccurrence": "%s"
                 }
-                """.formatted(accountId, categoryId);
+                """.formatted(
+                accountId,
+                categoryId,
+                LocalDate.now().plusDays(2)
+        );
 
         mockMvc.perform(
                 post("/api/recurring-transactions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
-        .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.id")
-                .value(recurringTransactionId.toString()))
-        .andExpect(jsonPath("$.accountId")
-                .value(accountId.toString()))
-        .andExpect(jsonPath("$.categoryId")
-                .value(categoryId.toString()))
-        .andExpect(jsonPath("$.categoryName")
-                .value("Entertainment"))
-        .andExpect(jsonPath("$.type")
-                .value("EXPENSE"))
-        .andExpect(jsonPath("$.amount")
-                .value(649.00))
-        .andExpect(jsonPath("$.frequencyUnit")
-                .value("MONTH"))
-        .andExpect(jsonPath("$.frequencyInterval")
-                .value(1));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id")
+                        .value(recurringTransactionId.toString()))
+                .andExpect(jsonPath("$.accountId")
+                        .value(accountId.toString()))
+                .andExpect(jsonPath("$.categoryId")
+                        .value(categoryId.toString()))
+                .andExpect(jsonPath("$.categoryName")
+                        .value("Entertainment"))
+                .andExpect(jsonPath("$.type").value("EXPENSE"))
+                .andExpect(jsonPath("$.amount").value(649.00))
+                .andExpect(jsonPath("$.frequencyUnit").value("MONTH"))
+                .andExpect(jsonPath("$.frequencyInterval").value(1))
+                .andExpect(jsonPath("$.skipNextOccurrence").value(false));
 
         verify(recurringTransactionService)
-                .createRecurringTransaction(
-                        eq(userId),
-                        any()
-                );
+                .createRecurringTransaction(eq(userId), any());
     }
 
     @Test
     void shouldGetRecurringTransactions() throws Exception {
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
+        when(currentUserService.getCurrentUserId()).thenReturn(userId);
 
-        RecurringTransactionResponse response =
-                createResponse();
+        RecurringTransactionResponse response = createResponse(
+                LocalDate.now().plusDays(2),
+                true,
+                true
+        );
 
         when(recurringTransactionService.getRecurringTransactions(userId))
                 .thenReturn(List.of(response));
 
-        mockMvc.perform(
-                get("/api/recurring-transactions")
-        )
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.length()").value(1))
-        .andExpect(jsonPath("$[0].description")
-                .value("Netflix"))
-        .andExpect(jsonPath("$[0].amount")
-                .value(649.00));
+        mockMvc.perform(get("/api/recurring-transactions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].description").value("Netflix"))
+                .andExpect(jsonPath("$[0].amount").value(649.00))
+                .andExpect(jsonPath("$[0].skipNextOccurrence").value(true));
 
         verify(recurringTransactionService)
                 .getRecurringTransactions(userId);
@@ -149,16 +147,16 @@ class RecurringTransactionControllerTest {
 
     @Test
     void shouldUpdateRecurringTransaction() throws Exception {
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
+        when(currentUserService.getCurrentUserId()).thenReturn(userId);
 
-        RecurringTransactionResponse response =
-                createResponse();
+        RecurringTransactionResponse response = createResponse(
+                LocalDate.now().plusDays(5),
+                false,
+                true
+        );
 
         when(recurringTransactionService.updateRecurringTransaction(
-                eq(userId),
-                eq(recurringTransactionId),
-                any()
+                eq(userId), eq(recurringTransactionId), any()
         )).thenReturn(response);
 
         String request = """
@@ -170,17 +168,20 @@ class RecurringTransactionControllerTest {
                     "description": "Netflix Premium",
                     "frequencyUnit": "MONTH",
                     "frequencyInterval": 1,
-                    "nextOccurrence": "2026-11-01"
+                    "nextOccurrence": "%s"
                 }
-                """.formatted(accountId, categoryId);
+                """.formatted(
+                accountId,
+                categoryId,
+                LocalDate.now().plusDays(5)
+        );
 
         mockMvc.perform(
-                put("/api/recurring-transactions/{id}",
-                        recurringTransactionId)
+                put("/api/recurring-transactions/{id}", recurringTransactionId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
-        .andExpect(status().isOk());
+                .andExpect(status().isOk());
 
         verify(recurringTransactionService)
                 .updateRecurringTransaction(
@@ -191,128 +192,78 @@ class RecurringTransactionControllerTest {
     }
 
     @Test
-    void shouldPauseRecurringTransactionForDuration()
-            throws Exception {
+    void shouldSkipNextOccurrence() throws Exception {
+        when(currentUserService.getCurrentUserId()).thenReturn(userId);
 
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
-
-        RecurringTransactionResponse response =
-                createResponseWithPause(
-                        LocalDate.of(2026, 12, 1),
-                        true
-                );
-
-        when(recurringTransactionService.pauseRecurringTransaction(
-                userId,
-                recurringTransactionId,
-                2,
-                false
-        )).thenReturn(response);
-
-        /*
-         * duration=2 means two units of the recurring rule's
-         * frequency.
-         */
-        mockMvc.perform(
-                patch("/api/recurring-transactions/{id}/pause",
-                        recurringTransactionId)
-                        .param("duration", "2")
-        )
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.pausedUntil")
-                .value("2026-12-01"))
-        .andExpect(jsonPath("$.active")
-                .value(true));
-
-        verify(recurringTransactionService)
-                .pauseRecurringTransaction(
-                        userId,
-                        recurringTransactionId,
-                        2,
-                        false
-                );
-    }
-
-    @Test
-    void shouldPauseRecurringTransactionUntilManualResume()
-            throws Exception {
-
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
-
-        RecurringTransactionResponse response =
-                createInactiveResponse();
-
-        when(recurringTransactionService.pauseRecurringTransaction(
-                userId,
-                recurringTransactionId,
-                null,
+        LocalDate nextOccurrence = LocalDate.now().plusDays(2);
+        RecurringTransactionResponse response = createResponse(
+                nextOccurrence,
+                true,
                 true
+        );
+
+        when(recurringTransactionService.skipNextOccurrence(
+                userId, recurringTransactionId
         )).thenReturn(response);
 
         mockMvc.perform(
-                patch("/api/recurring-transactions/{id}/pause",
-                        recurringTransactionId)
-                        .param("untilResume", "true")
+                patch(
+                        "/api/recurring-transactions/{id}/skip-next",
+                        recurringTransactionId
+                )
         )
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.active")
-                .value(false))
-        .andExpect(jsonPath("$.pausedUntil")
-                .isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.skipNextOccurrence").value(true))
+                .andExpect(jsonPath("$.nextOccurrence")
+                        .value(nextOccurrence.toString()))
+                .andExpect(jsonPath("$.active").value(true));
 
         verify(recurringTransactionService)
-                .pauseRecurringTransaction(
-                        userId,
-                        recurringTransactionId,
-                        null,
-                        true
-                );
+                .skipNextOccurrence(userId, recurringTransactionId);
     }
 
     @Test
-    void shouldResumeRecurringTransaction() throws Exception {
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
+    void shouldUndoSkipNextOccurrence() throws Exception {
+        when(currentUserService.getCurrentUserId()).thenReturn(userId);
 
-        RecurringTransactionResponse response =
-                createResponse();
+        LocalDate nextOccurrence = LocalDate.now().plusDays(2);
+        RecurringTransactionResponse response = createResponse(
+                nextOccurrence,
+                false,
+                true
+        );
 
-        when(recurringTransactionService.resumeRecurringTransaction(
-                userId,
-                recurringTransactionId
+        when(recurringTransactionService.undoSkipNextOccurrence(
+                userId, recurringTransactionId
         )).thenReturn(response);
 
         mockMvc.perform(
-                patch("/api/recurring-transactions/{id}/resume",
-                        recurringTransactionId)
+                patch(
+                        "/api/recurring-transactions/{id}/undo-skip",
+                        recurringTransactionId
+                )
         )
-        .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.skipNextOccurrence").value(false))
+                .andExpect(jsonPath("$.nextOccurrence")
+                        .value(nextOccurrence.toString()));
 
         verify(recurringTransactionService)
-                .resumeRecurringTransaction(
-                        userId,
-                        recurringTransactionId
-                );
+                .undoSkipNextOccurrence(userId, recurringTransactionId);
     }
 
     @Test
     void shouldDeleteRecurringTransaction() throws Exception {
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(userId);
+        when(currentUserService.getCurrentUserId()).thenReturn(userId);
 
         mockMvc.perform(
                 delete("/api/recurring-transactions/{id}",
                         recurringTransactionId)
         )
-        .andExpect(status().isNoContent());
+                .andExpect(status().isNoContent());
 
         verify(recurringTransactionService)
-                .deleteRecurringTransaction(
-                        userId,
-                        recurringTransactionId
-                );
+                .deleteRecurringTransaction(userId, recurringTransactionId);
     }
 
     @Test
@@ -325,16 +276,16 @@ class RecurringTransactionControllerTest {
                     "description": "Netflix",
                     "frequencyUnit": "MONTH",
                     "frequencyInterval": 1,
-                    "nextOccurrence": "2026-10-01"
+                    "nextOccurrence": "%s"
                 }
-                """.formatted(categoryId);
+                """.formatted(categoryId, LocalDate.now().plusDays(2));
 
         mockMvc.perform(
                 post("/api/recurring-transactions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
-        .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -347,16 +298,20 @@ class RecurringTransactionControllerTest {
                     "description": "Netflix",
                     "frequencyUnit": "MONTH",
                     "frequencyInterval": 1,
-                    "nextOccurrence": "2026-10-01"
+                    "nextOccurrence": "%s"
                 }
-                """.formatted(accountId, categoryId);
+                """.formatted(
+                accountId,
+                categoryId,
+                LocalDate.now().plusDays(2)
+        );
 
         mockMvc.perform(
                 post("/api/recurring-transactions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
-        .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -369,16 +324,20 @@ class RecurringTransactionControllerTest {
                     "amount": 0,
                     "frequencyUnit": "MONTH",
                     "frequencyInterval": 1,
-                    "nextOccurrence": "2026-10-01"
+                    "nextOccurrence": "%s"
                 }
-                """.formatted(accountId, categoryId);
+                """.formatted(
+                accountId,
+                categoryId,
+                LocalDate.now().plusDays(2)
+        );
 
         mockMvc.perform(
                 post("/api/recurring-transactions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
-        .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -390,16 +349,20 @@ class RecurringTransactionControllerTest {
                     "type": "EXPENSE",
                     "amount": 649.00,
                     "frequencyInterval": 1,
-                    "nextOccurrence": "2026-10-01"
+                    "nextOccurrence": "%s"
                 }
-                """.formatted(accountId, categoryId);
+                """.formatted(
+                accountId,
+                categoryId,
+                LocalDate.now().plusDays(2)
+        );
 
         mockMvc.perform(
                 post("/api/recurring-transactions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
-        .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -420,30 +383,12 @@ class RecurringTransactionControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request)
         )
-        .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest());
     }
 
-    private RecurringTransactionResponse createResponse() {
-        return new RecurringTransactionResponse(
-                recurringTransactionId,
-                accountId,
-                categoryId,
-                "Entertainment",
-                TransactionType.EXPENSE,
-                new BigDecimal("649.00"),
-                "Netflix",
-                RecurringFrequencyUnit.MONTH,
-                1,
-                LocalDate.of(2026, 10, 1),
-                null,
-                true,
-                OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
-    }
-
-    private RecurringTransactionResponse createResponseWithPause(
-            LocalDate pausedUntil,
+    private RecurringTransactionResponse createResponse(
+            LocalDate nextOccurrence,
+            boolean skipNextOccurrence,
             boolean active
     ) {
         return new RecurringTransactionResponse(
@@ -456,28 +401,9 @@ class RecurringTransactionControllerTest {
                 "Netflix",
                 RecurringFrequencyUnit.MONTH,
                 1,
-                pausedUntil,
-                pausedUntil,
+                nextOccurrence,
+                skipNextOccurrence,
                 active,
-                OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
-    }
-
-    private RecurringTransactionResponse createInactiveResponse() {
-        return new RecurringTransactionResponse(
-                recurringTransactionId,
-                accountId,
-                categoryId,
-                "Entertainment",
-                TransactionType.EXPENSE,
-                new BigDecimal("649.00"),
-                "Netflix",
-                RecurringFrequencyUnit.MONTH,
-                1,
-                LocalDate.of(2026, 10, 1),
-                null,
-                false,
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );

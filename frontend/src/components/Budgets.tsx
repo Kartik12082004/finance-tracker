@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
+
 import {
   createBudget,
   deleteBudget,
   getBudgets,
   updateBudget,
 } from "../api/budgetApi";
+
 import type {
   Budget,
-  BudgetPeriod,
   CreateBudgetRequest,
   UpdateBudgetRequest,
 } from "../types/budget";
+
 import { getCategories } from "../api/categoryApi";
 import type { Category } from "../types/category";
 
@@ -22,11 +24,47 @@ function formatAmount(amount: number): string {
   return amount.toFixed(2);
 }
 
-function formatDate(date: string): string {
-  return new Date(`${date}T00:00:00`).toLocaleDateString("en-GB");
+function getMonthLabel(year: number, month: number): string {
+  return new Date(year, month - 1, 1).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function getPreviousMonth(year: number, month: number) {
+  if (month === 1) {
+    return {
+      year: year - 1,
+      month: 12,
+    };
+  }
+
+  return {
+    year,
+    month: month - 1,
+  };
+}
+
+function getNextMonth(year: number, month: number) {
+  if (month === 12) {
+    return {
+      year: year + 1,
+      month: 1,
+    };
+  }
+
+  return {
+    year,
+    month: month + 1,
+  };
 }
 
 export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
+  const now = new Date();
+
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
+
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
 
@@ -35,19 +73,16 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
 
   const [categoryId, setCategoryId] = useState("");
   const [amount, setAmount] = useState("");
-  const [period, setPeriod] = useState<BudgetPeriod>("MONTHLY");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-
   const [isCreating, setIsCreating] = useState(false);
 
   const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
-  const [editPeriod, setEditPeriod] = useState<BudgetPeriod>("MONTHLY");
-  const [editStartDate, setEditStartDate] = useState("");
-  const [editEndDate, setEditEndDate] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
+
   const [deletingBudgetId, setDeletingBudgetId] = useState<string | null>(null);
+
+  const isCurrentMonth =
+    selectedYear === now.getFullYear() && selectedMonth === now.getMonth() + 1;
 
   useEffect(() => {
     async function loadBudgets() {
@@ -56,7 +91,7 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
         setError(null);
 
         const [budgetsResponse, categoriesResponse] = await Promise.all([
-          getBudgets(),
+          getBudgets(selectedYear, selectedMonth),
           getCategories(),
         ]);
 
@@ -72,11 +107,35 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
     }
 
     void loadBudgets();
-  }, [refreshKey]);
+  }, [selectedYear, selectedMonth, refreshKey]);
 
   async function refreshBudgets() {
-    const updatedBudgets = await getBudgets();
+    const updatedBudgets = await getBudgets(selectedYear, selectedMonth);
     setBudgets(updatedBudgets);
+  }
+
+  function goToPreviousMonth() {
+    const previous = getPreviousMonth(selectedYear, selectedMonth);
+
+    setSelectedYear(previous.year);
+    setSelectedMonth(previous.month);
+    setEditingBudgetId(null);
+    setEditAmount("");
+    setError(null);
+  }
+
+  function goToNextMonth() {
+    if (isCurrentMonth) {
+      return;
+    }
+
+    const next = getNextMonth(selectedYear, selectedMonth);
+
+    setSelectedYear(next.year);
+    setSelectedMonth(next.month);
+    setEditingBudgetId(null);
+    setEditAmount("");
+    setError(null);
   }
 
   async function handleCreateBudget(event: React.FormEvent<HTMLFormElement>) {
@@ -94,40 +153,24 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
       return;
     }
 
-    if (!startDate) {
-      setError("Start date is required.");
-      return;
-    }
-
-    if (!endDate) {
-      setError("End date is required.");
-      return;
-    }
-
-    if (endDate < startDate) {
-      setError("End date cannot be before start date.");
+    if (!Number.isInteger(parsedAmount * 100)) {
+      setError("Budget amount cannot have more than 2 decimal places.");
       return;
     }
 
     const request: CreateBudgetRequest = {
       categoryId,
       amount: parsedAmount,
-      period,
-      startDate,
-      endDate,
     };
 
     try {
       setIsCreating(true);
       setError(null);
 
-      await createBudget(request);
+      await createBudget(selectedYear, selectedMonth, request);
 
       setCategoryId("");
       setAmount("");
-      setPeriod("MONTHLY");
-      setStartDate("");
-      setEndDate("");
 
       await refreshBudgets();
     } catch (err) {
@@ -140,18 +183,12 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
   function startEditingBudget(budget: Budget) {
     setEditingBudgetId(budget.id);
     setEditAmount(String(budget.amount));
-    setEditPeriod(budget.period);
-    setEditStartDate(budget.startDate);
-    setEditEndDate(budget.endDate);
     setError(null);
   }
 
   function cancelEditingBudget() {
     setEditingBudgetId(null);
     setEditAmount("");
-    setEditPeriod("MONTHLY");
-    setEditStartDate("");
-    setEditEndDate("");
   }
 
   async function handleUpdateBudget(
@@ -167,26 +204,13 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
       return;
     }
 
-    if (!editStartDate) {
-      setError("Start date is required.");
-      return;
-    }
-
-    if (!editEndDate) {
-      setError("End date is required.");
-      return;
-    }
-
-    if (editEndDate < editStartDate) {
-      setError("End date cannot be before start date.");
+    if (!Number.isInteger(parsedAmount * 100)) {
+      setError("Budget amount cannot have more than 2 decimal places.");
       return;
     }
 
     const request: UpdateBudgetRequest = {
       amount: parsedAmount,
-      period: editPeriod,
-      startDate: editStartDate,
-      endDate: editEndDate,
     };
 
     try {
@@ -206,7 +230,10 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
 
   async function handleDeleteBudget(budget: Budget) {
     const confirmed = window.confirm(
-      `Are you sure you want to permanently delete the ${budget.categoryName} budget? This cannot be undone.`,
+      `Are you sure you want to permanently delete the ${budget.categoryName} budget for ${getMonthLabel(
+        budget.year,
+        budget.month,
+      )}?`,
     );
 
     if (!confirmed) {
@@ -218,6 +245,7 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
       setError(null);
 
       await deleteBudget(budget.id);
+
       setBudgets((currentBudgets) =>
         currentBudgets.filter(
           (currentBudget) => currentBudget.id !== budget.id,
@@ -235,7 +263,7 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
   }
 
   const expenseCategories = categories.filter(
-    (category) => category.type === "EXPENSE",
+    (category) => category.type === "EXPENSE" && category.parentId === null,
   );
 
   if (isLoading) {
@@ -249,7 +277,25 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
 
   return (
     <section>
-      <h2>Budgets</h2>
+      <div>
+        <h2>Budgets</h2>
+
+        <div>
+          <button type="button" onClick={goToPreviousMonth}>
+            Previous
+          </button>
+
+          <strong>{getMonthLabel(selectedYear, selectedMonth)}</strong>
+
+          <button
+            type="button"
+            onClick={goToNextMonth}
+            disabled={isCurrentMonth}
+          >
+            Next
+          </button>
+        </div>
+      </div>
 
       {error && <p>{error}</p>}
 
@@ -276,7 +322,7 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
           </div>
 
           <div>
-            <label htmlFor="budget-amount">Amount</label>
+            <label htmlFor="budget-amount">Monthly amount</label>
 
             <input
               id="budget-amount"
@@ -288,44 +334,6 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
             />
           </div>
 
-          <div>
-            <label htmlFor="budget-period">Period</label>
-
-            <select
-              id="budget-period"
-              value={period}
-              onChange={(event) =>
-                setPeriod(event.target.value as BudgetPeriod)
-              }
-            >
-              <option value="MONTHLY">Monthly</option>
-              <option value="WEEKLY">Weekly</option>
-              <option value="YEARLY">Yearly</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="budget-start-date">Start date</label>
-
-            <input
-              id="budget-start-date"
-              type="date"
-              value={startDate}
-              onChange={(event) => setStartDate(event.target.value)}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="budget-end-date">End date</label>
-
-            <input
-              id="budget-end-date"
-              type="date"
-              value={endDate}
-              onChange={(event) => setEndDate(event.target.value)}
-            />
-          </div>
-
           <button type="submit" disabled={isCreating}>
             {isCreating ? "Creating..." : "Create Budget"}
           </button>
@@ -333,10 +341,10 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
       </section>
 
       <section>
-        <h3>Your Budgets</h3>
+        <h3>{getMonthLabel(selectedYear, selectedMonth)} Budgets</h3>
 
         {budgets.length === 0 ? (
-          <p>No budgets found.</p>
+          <p>No budgets found for this month.</p>
         ) : (
           <ul>
             {budgets.map((budget) => (
@@ -352,7 +360,13 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
                         <p>
                           Category: <strong>{budget.categoryName}</strong>
                         </p>
-                        <p>Category cannot be changed while editing.</p>
+
+                        <p>
+                          Month:{" "}
+                          <strong>
+                            {getMonthLabel(budget.year, budget.month)}
+                          </strong>
+                        </p>
                       </div>
 
                       <div>
@@ -368,54 +382,6 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
                           value={editAmount}
                           onChange={(event) =>
                             setEditAmount(event.target.value)
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor={`edit-budget-period-${budget.id}`}>
-                          Period
-                        </label>
-
-                        <select
-                          id={`edit-budget-period-${budget.id}`}
-                          value={editPeriod}
-                          onChange={(event) =>
-                            setEditPeriod(event.target.value as BudgetPeriod)
-                          }
-                        >
-                          <option value="MONTHLY">Monthly</option>
-                          <option value="WEEKLY">Weekly</option>
-                          <option value="YEARLY">Yearly</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label htmlFor={`edit-budget-start-${budget.id}`}>
-                          Start date
-                        </label>
-
-                        <input
-                          id={`edit-budget-start-${budget.id}`}
-                          type="date"
-                          value={editStartDate}
-                          onChange={(event) =>
-                            setEditStartDate(event.target.value)
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor={`edit-budget-end-${budget.id}`}>
-                          End date
-                        </label>
-
-                        <input
-                          id={`edit-budget-end-${budget.id}`}
-                          type="date"
-                          value={editEndDate}
-                          onChange={(event) =>
-                            setEditEndDate(event.target.value)
                           }
                         />
                       </div>
@@ -441,12 +407,6 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
                       <p>Remaining: ₹{formatAmount(budget.remainingAmount)}</p>
 
                       <p>Used: {formatAmount(budget.spendingPercentage)}%</p>
-
-                      <p>Period: {budget.period}</p>
-
-                      <p>Start: {formatDate(budget.startDate)}</p>
-
-                      <p>End: {formatDate(budget.endDate)}</p>
 
                       <button
                         type="button"

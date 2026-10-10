@@ -85,4 +85,16 @@ public class Category {
 
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    public void update(
+            String name,
+            CategoryType type,
+            Category parent
+    ) {
+        this.name = name;
+        this.type = type;
+        this.parent = parent;
+        this.updatedAt = OffsetDateTime.now();
+    }
+
 }

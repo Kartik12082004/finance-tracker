@@ -1,6 +1,5 @@
 package com.kartik.finance_tracker.goals;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,10 +13,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.kartik.finance_tracker.goals.dto.CreateGoalRequest;
+import com.kartik.finance_tracker.goals.dto.GoalContributionRequest;
 import com.kartik.finance_tracker.goals.dto.GoalResponse;
 import com.kartik.finance_tracker.goals.dto.UpdateGoalRequest;
 import com.kartik.finance_tracker.security.CurrentUserService;
@@ -45,23 +44,16 @@ public class GoalController {
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
-        GoalResponse response = goalService.createGoal(
-                userId,
-                request
-        );
+        GoalResponse response = goalService.createGoal(userId, request);
 
-        return ResponseEntity
-                .status(HttpStatus.CREATED)
-                .body(response);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping
     public ResponseEntity<List<GoalResponse>> getGoals() {
         UUID userId = currentUserService.getCurrentUserId();
 
-        return ResponseEntity.ok(
-                goalService.getGoals(userId)
-        );
+        return ResponseEntity.ok(goalService.getGoals(userId));
     }
 
     @PutMapping("/{id}")
@@ -72,18 +64,14 @@ public class GoalController {
         UUID userId = currentUserService.getCurrentUserId();
 
         return ResponseEntity.ok(
-                goalService.updateGoal(
-                        userId,
-                        id,
-                        request
-                )
+                goalService.updateGoal(userId, id, request)
         );
     }
 
     @PostMapping("/{id}/contributions")
     public ResponseEntity<GoalResponse> contribute(
             @PathVariable UUID id,
-            @RequestParam BigDecimal amount
+            @Valid @RequestBody GoalContributionRequest request
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
@@ -91,7 +79,8 @@ public class GoalController {
                 goalService.contribute(
                         userId,
                         id,
-                        amount
+                        request.sourceAccountId(),
+                        request.amount()
                 )
         );
     }
@@ -102,9 +91,7 @@ public class GoalController {
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
-        return ResponseEntity.ok(
-                goalService.pauseGoal(userId, id)
-        );
+        return ResponseEntity.ok(goalService.pauseGoal(userId, id));
     }
 
     @PatchMapping("/{id}/resume")
@@ -113,9 +100,7 @@ public class GoalController {
     ) {
         UUID userId = currentUserService.getCurrentUserId();
 
-        return ResponseEntity.ok(
-                goalService.resumeGoal(userId, id)
-        );
+        return ResponseEntity.ok(goalService.resumeGoal(userId, id));
     }
 
     @DeleteMapping("/{id}")

@@ -5,8 +5,10 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -25,6 +27,7 @@ import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
 @Service
+@Transactional
 public class BudgetService {
 
     private static final ZoneId APPLICATION_ZONE =
@@ -47,45 +50,171 @@ public class BudgetService {
         this.transactionRepository = transactionRepository;
     }
 
-    @Transactional
+    /**
+     * Returns the budgets for a specific month.
+     *
+     * Missing budgets are automatically inherited from the latest
+     * previous snapshot for the same category.
+     */
+    public List<BudgetResponse> getBudgetsForMonth(
+            UUID userId,
+            int year,
+            int month
+    ) {
+        validateMonth(month);
+
+        User user = getUser(userId);
+
+        List<Budget> currentBudgets =
+                budgetRepository.findByUser_IdAndYearAndMonth(
+                        userId,
+                        year,
+                        month
+                );
+
+        Map<UUID, Budget> budgetsByCategory = new HashMap<>();
+
+        for (Budget budget : currentBudgets) {
+            budgetsByCategory.put(
+                    budget.getCategory().getId(),
+                    budget
+            );
+        }
+
+        /*
+         * Find the latest existing snapshot for every category.
+         *
+         * Because budgets are monthly snapshots, inheritance is always
+         * category-specific. A Food budget can never create a Housing
+         * budget, for example.
+         */
+        List<Budget> allUserBudgets =
+                budgetRepository.findByUser_Id(userId);
+
+        Map<UUID, Budget> latestPreviousBudgetByCategory =
+                new HashMap<>();
+
+        for (Budget budget : allUserBudgets) {
+
+            if (!isBefore(
+                    budget.getYear(),
+                    budget.getMonth(),
+                    year,
+                    month
+            )) {
+                continue;
+            }
+
+            UUID budgetCategoryId =
+                    budget.getCategory().getId();
+
+            Budget existing =
+                    latestPreviousBudgetByCategory.get(
+                            budgetCategoryId
+                    );
+
+            if (existing == null
+                    || isAfter(
+                            budget.getYear(),
+                            budget.getMonth(),
+                            existing.getYear(),
+                            existing.getMonth()
+                    )) {
+
+                latestPreviousBudgetByCategory.put(
+                        budgetCategoryId,
+                        budget
+                );
+            }
+        }
+
+        /*
+         * Materialize inherited snapshots.
+         */
+        for (Budget previousBudget :
+                latestPreviousBudgetByCategory.values()) {
+
+            UUID categoryId =
+                    previousBudget.getCategory().getId();
+
+            if (budgetsByCategory.containsKey(categoryId)) {
+                continue;
+            }
+
+            Budget inheritedBudget = new Budget(
+                    user,
+                    previousBudget.getCategory(),
+                    previousBudget.getAmount(),
+                    year,
+                    month
+            );
+
+            Budget saved =
+                    budgetRepository.save(inheritedBudget);
+
+            budgetsByCategory.put(
+                    categoryId,
+                    saved
+            );
+        }
+
+        return budgetsByCategory.values()
+                .stream()
+                .sorted(
+                        (first, second) ->
+                                first.getCategory()
+                                        .getName()
+                                        .compareToIgnoreCase(
+                                                second.getCategory()
+                                                        .getName()
+                                        )
+                )
+                .map(this::toResponse)
+                .toList();
+    }
+
+    /**
+     * Creates an explicit budget snapshot for a month.
+     */
     public BudgetResponse createBudget(
             UUID userId,
+            int year,
+            int month,
             CreateBudgetRequest request
     ) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("User not found"));
+        validateMonth(month);
+        validateAmount(request.amount());
 
-        Category category = categoryRepository.findById(request.categoryId())
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Category not found"));
+        User user = getUser(userId);
 
-        if (!category.getUser().getId().equals(userId)) {
+        Category category =
+                categoryRepository.findById(request.categoryId())
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Category not found"
+                                )
+                        );
+
+        validateCategoryOwnership(category, userId);
+
+        if (category.getType()
+                != com.kartik.finance_tracker.categories.CategoryType.EXPENSE) {
+
             throw new IllegalArgumentException(
-                    "Category does not belong to the authenticated user"
+                    "Budgets can only be created for expense categories"
             );
         }
 
-        if (request.amount().scale() > 2) {
-            throw new IllegalArgumentException(
-                    "Amount cannot have more than 2 decimal places"
-            );
-        }
+        if (budgetRepository
+                .existsByUser_IdAndCategory_IdAndYearAndMonth(
+                        userId,
+                        category.getId(),
+                        year,
+                        month
+                )) {
 
-        validateDateRange(
-                request.startDate(),
-                request.endDate()
-        );
-
-        if (budgetRepository.existsByUser_IdAndCategory_IdAndPeriodAndStartDateAndEndDate(
-                userId,
-                request.categoryId(),
-                request.period(),
-                request.startDate(),
-                request.endDate()
-        )) {
             throw new IllegalArgumentException(
-                    "A budget already exists for this category and period"
+                    "Budget already exists for this category and month"
             );
         }
 
@@ -93,170 +222,80 @@ public class BudgetService {
                 user,
                 category,
                 request.amount(),
-                request.period(),
-                request.startDate(),
-                request.endDate()
+                year,
+                month
         );
 
-        Budget savedBudget = budgetRepository.save(budget);
-
-        return toResponse(savedBudget);
+        return toResponse(
+                budgetRepository.save(budget)
+        );
     }
 
-    @Transactional(readOnly = true)
-    public List<BudgetResponse> getBudgets(UUID userId) {
-        if (!userRepository.existsById(userId)) {
-            throw new ResourceNotFoundException("User not found");
-        }
-
-        return budgetRepository.findByUser_Id(userId)
-                .stream()
-                .map(this::toResponse)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public List<BudgetResponse> getBudgetsForDate(
-            UUID userId,
-            LocalDate date
-    ) {
-        if (!userRepository.existsById(userId)) {
-            throw new ResourceNotFoundException("User not found");
-        }
-
-        return budgetRepository
-                .findByUser_IdAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                        userId,
-                        date,
-                        date
-                )
-                .stream()
-                .map(this::toResponse)
-                .toList();
-    }
-
-    @Transactional
+    /**
+     * Updates only the selected month's snapshot.
+     *
+     * Future snapshots are not modified.
+     */
     public BudgetResponse updateBudget(
             UUID userId,
             UUID budgetId,
             UpdateBudgetRequest request
     ) {
-        Budget budget = budgetRepository
-                .findByIdAndUser_Id(budgetId, userId)
+        validateAmount(request.amount());
+
+        Budget budget =
+                budgetRepository.findByIdAndUser_Id(
+                        budgetId,
+                        userId
+                )
                 .orElseThrow(() ->
-                        new ResourceNotFoundException("Budget not found"));
+                        new ResourceNotFoundException(
+                                "Budget not found"
+                        )
+                );
 
-        if (request.amount().scale() > 2) {
-            throw new IllegalArgumentException(
-                    "Amount cannot have more than 2 decimal places"
-            );
-        }
+        budget.updateAmount(request.amount());
 
-        validateDateRange(
-                request.startDate(),
-                request.endDate()
+        return toResponse(
+                budgetRepository.save(budget)
         );
-
-        if (budgetRepository
-                .existsByUser_IdAndCategory_IdAndPeriodAndStartDateAndEndDateAndIdNot(
-                        userId,
-                        budget.getCategory().getId(),
-                        request.period(),
-                        request.startDate(),
-                        request.endDate(),
-                        budgetId
-                )) {
-            throw new IllegalArgumentException(
-                    "A budget already exists for this category and period"
-            );
-        }
-
-        budget.update(
-                request.amount(),
-                request.period(),
-                request.startDate(),
-                request.endDate()
-        );
-
-        Budget savedBudget = budgetRepository.save(budget);
-
-        return toResponse(savedBudget);
     }
 
-    @Transactional
+    /**
+     * Deletes a single monthly snapshot.
+     */
     public void deleteBudget(
             UUID userId,
             UUID budgetId
     ) {
-        Budget budget = budgetRepository
-                .findByIdAndUser_Id(budgetId, userId)
+        Budget budget =
+                budgetRepository.findByIdAndUser_Id(
+                        budgetId,
+                        userId
+                )
                 .orElseThrow(() ->
-                        new ResourceNotFoundException("Budget not found"));
+                        new ResourceNotFoundException(
+                                "Budget not found"
+                        )
+                );
 
         budgetRepository.delete(budget);
     }
 
-    private void validateDateRange(
-            LocalDate startDate,
-            LocalDate endDate
-    ) {
-        if (startDate.isAfter(endDate)) {
-            throw new IllegalArgumentException(
-                    "Start date must be before or equal to end date"
-            );
-        }
-    }
-
     private BudgetResponse toResponse(Budget budget) {
 
-        LocalDate startDate = budget.getStartDate();
-        LocalDate endDate = budget.getEndDate();
-
-        OffsetDateTime start = startDate
-                .atStartOfDay(APPLICATION_ZONE)
-                .toOffsetDateTime();
-
-        OffsetDateTime end = endDate
-                .plusDays(1)
-                .atStartOfDay(APPLICATION_ZONE)
-                .toOffsetDateTime();
-
-        Set<UUID> budgetCategoryIds =
-                collectCategoryAndDescendants(
-                        budget.getCategory().getId(),
-                        budget.getUser().getId()
-                );
-
         BigDecimal spentAmount =
-                transactionRepository.findPostedExpenseAmountForBudget(
-                        budget.getUser().getId(),
-                        budgetCategoryIds,
-                        TransactionType.EXPENSE,
-                        start,
-                        end
-                );
+                calculateSpentAmount(budget);
 
-        if (spentAmount == null) {
-            spentAmount = BigDecimal.ZERO;
-        }
+        BigDecimal remainingAmount =
+                budget.getAmount()
+                        .subtract(spentAmount);
 
-        spentAmount = spentAmount.setScale(
-                2,
-                RoundingMode.HALF_UP
-        );
-
-        BigDecimal remainingAmount = budget.getAmount()
-                .subtract(spentAmount)
-                .setScale(2, RoundingMode.HALF_UP);
-
-        BigDecimal spendingPercentage = spentAmount
-                .divide(
+        BigDecimal spendingPercentage =
+                calculateSpendingPercentage(
                         budget.getAmount(),
-                        4,
-                        RoundingMode.HALF_UP
-                )
-                .multiply(BigDecimal.valueOf(100))
-                .setScale(2, RoundingMode.HALF_UP);
+                        spentAmount
+                );
 
         return new BudgetResponse(
                 budget.getId(),
@@ -266,53 +305,175 @@ public class BudgetService {
                 spentAmount,
                 remainingAmount,
                 spendingPercentage,
-                budget.getPeriod(),
-                startDate,
-                endDate,
+                budget.getYear(),
+                budget.getMonth(),
                 budget.getCreatedAt(),
                 budget.getUpdatedAt()
         );
     }
 
-    private Set<UUID> collectCategoryAndDescendants(
-            UUID rootCategoryId,
-            UUID userId
+    private BigDecimal calculateSpentAmount(
+            Budget budget
     ) {
-        List<Category> userCategories =
-                categoryRepository.findAllByUser_Id(userId);
+        Set<UUID> categoryIds =
+                new HashSet<>();
 
-        Set<UUID> categoryIds = new HashSet<>();
-
-        collectDescendants(
-                rootCategoryId,
-                userCategories,
+        collectCategoryIds(
+                budget.getCategory(),
                 categoryIds
         );
 
-        return categoryIds;
+        OffsetDateTime start =
+                LocalDate.of(
+                        budget.getYear(),
+                        budget.getMonth(),
+                        1
+                )
+                .atStartOfDay(APPLICATION_ZONE)
+                .toOffsetDateTime();
+
+        OffsetDateTime end =
+                LocalDate.of(
+                        budget.getYear(),
+                        budget.getMonth(),
+                        1
+                )
+                .plusMonths(1)
+                .atStartOfDay(APPLICATION_ZONE)
+                .toOffsetDateTime();
+
+        BigDecimal spent =
+                transactionRepository
+                        .findPostedExpenseAmountForBudget(
+                                budget.getUser().getId(),
+                                categoryIds,
+                                TransactionType.EXPENSE,
+                                start,
+                                end
+                        );
+
+        if (spent == null) {
+            return BigDecimal.ZERO.setScale(
+                    2,
+                    RoundingMode.HALF_UP
+            );
+        }
+
+        return spent.setScale(
+                2,
+                RoundingMode.HALF_UP
+        );
     }
 
-    private void collectDescendants(
-            UUID categoryId,
-            List<Category> categories,
+    /**
+     * Includes the budget category itself and every descendant.
+     *
+     * This is what allows a parent budget such as Food to include:
+     *
+     * Food
+     * ├── Groceries
+     * ├── Restaurants
+     * └── Delivery
+     */
+    private void collectCategoryIds(
+            Category category,
             Set<UUID> categoryIds
     ) {
-        if (!categoryIds.add(categoryId)) {
+        categoryIds.add(category.getId());
+
+        if (category.getChildren() == null) {
             return;
         }
 
-        for (Category category : categories) {
-            Category parent = category.getParent();
-
-            if (parent != null
-                    && categoryId.equals(parent.getId())) {
-
-                collectDescendants(
-                        category.getId(),
-                        categories,
-                        categoryIds
-                );
-            }
+        for (Category child : category.getChildren()) {
+            collectCategoryIds(child, categoryIds);
         }
+    }
+
+    private BigDecimal calculateSpendingPercentage(
+            BigDecimal budgetAmount,
+            BigDecimal spentAmount
+    ) {
+        if (budgetAmount.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO.setScale(
+                    2,
+                    RoundingMode.HALF_UP
+            );
+        }
+
+        return spentAmount
+                .multiply(BigDecimal.valueOf(100))
+                .divide(
+                        budgetAmount,
+                        2,
+                        RoundingMode.HALF_UP
+                );
+    }
+
+    private User getUser(UUID userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "User not found"
+                        )
+                );
+    }
+
+    private void validateCategoryOwnership(
+            Category category,
+            UUID userId
+    ) {
+        if (!category.getUser().getId().equals(userId)) {
+            throw new ResourceNotFoundException(
+                    "Category not found"
+            );
+        }
+    }
+
+    private void validateAmount(BigDecimal amount) {
+
+        if (amount == null
+                || amount.compareTo(BigDecimal.ZERO) <= 0) {
+
+            throw new IllegalArgumentException(
+                    "Amount must be greater than zero"
+            );
+        }
+
+        if (amount.scale() > 2) {
+            throw new IllegalArgumentException(
+                    "Amount cannot have more than 2 decimal places"
+            );
+        }
+    }
+
+    private void validateMonth(int month) {
+        if (month < 1 || month > 12) {
+            throw new IllegalArgumentException(
+                    "Month must be between 1 and 12"
+            );
+        }
+    }
+
+    private boolean isBefore(
+            int year,
+            int month,
+            int targetYear,
+            int targetMonth
+    ) {
+        return year < targetYear
+                || (year == targetYear
+                    && month < targetMonth);
+    }
+
+    private boolean isAfter(
+            int year,
+            int month,
+            int otherYear,
+            int otherMonth
+    ) {
+        return year > otherYear
+                || (year == otherYear
+                    && month > otherMonth);
     }
 }
