@@ -7,6 +7,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -65,6 +66,23 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST.value(),
                 "Invalid request body"
         );
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public org.springframework.http.ResponseEntity<ApiErrorResponse>
+                handleResponseStatusException(ResponseStatusException exception) {
+
+        HttpStatus status = HttpStatus.valueOf(
+                exception.getStatusCode().value()
+        );
+
+        String message = exception.getReason() != null
+                ? exception.getReason()
+                : status.getReasonPhrase();
+
+        return org.springframework.http.ResponseEntity
+                .status(status)
+                .body(new ApiErrorResponse(status.value(), message));
     }
 
     @ExceptionHandler(Exception.class)

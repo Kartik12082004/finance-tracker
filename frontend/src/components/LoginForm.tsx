@@ -10,20 +10,26 @@ type LoginFormProps = {
 function LoginForm({ onLogin, onSwitchToRegister }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  function handleOAuthLogin(provider: "google" | "github") {
+    window.location.href = `http://localhost:8080/oauth2/authorization/${provider}`;
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     setError("");
 
-    if (email.trim() === "") {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
       setError("Email is required.");
       return;
     }
 
-    if (password.trim() === "") {
+    if (!password) {
       setError("Password is required.");
       return;
     }
@@ -32,7 +38,7 @@ function LoginForm({ onLogin, onSwitchToRegister }: LoginFormProps) {
 
     try {
       const authResponse = await login({
-        email,
+        email: trimmedEmail,
         password,
       });
 
@@ -45,32 +51,73 @@ function LoginForm({ onLogin, onSwitchToRegister }: LoginFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h2>Login</h2>
+    <form className="auth-form" onSubmit={handleSubmit}>
+      <h2>Welcome Back</h2>
+      <p>Sign in to access your Finance Tracker.</p>
 
-      <label>
-        Email:
-        <input
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-      </label>
+      <div className="oauth-buttons">
+        <button
+          type="button"
+          className="oauth-button oauth-google"
+          onClick={() => handleOAuthLogin("google")}
+        >
+          <span aria-hidden="true">G</span>
+          Continue with Google
+        </button>
 
-      <br />
+        <button
+          type="button"
+          className="oauth-button oauth-github"
+          onClick={() => handleOAuthLogin("github")}
+        >
+          <span aria-hidden="true">●</span>
+          Continue with GitHub
+        </button>
+      </div>
 
-      <label>
-        Password:
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-        />
-      </label>
+      <div className="auth-divider">
+        <span>OR CONTINUE WITH EMAIL</span>
+      </div>
 
-      <br />
+      <label htmlFor="login-email">Email</label>
+      <input
+        id="login-email"
+        name="email"
+        type="email"
+        autoComplete="email"
+        value={email}
+        onChange={(event) => setEmail(event.target.value)}
+        maxLength={255}
+        required
+        disabled={isSubmitting}
+      />
 
-      {error && <p>{error}</p>}
+      <label htmlFor="login-password">Password</label>
+      <input
+        id="login-password"
+        name="password"
+        type={showPassword ? "text" : "password"}
+        autoComplete="current-password"
+        value={password}
+        onChange={(event) => setPassword(event.target.value)}
+        required
+        disabled={isSubmitting}
+      />
+
+      <button
+        type="button"
+        onClick={() => setShowPassword((current) => !current)}
+        disabled={isSubmitting}
+        aria-label={showPassword ? "Hide password" : "Show password"}
+      >
+        {showPassword ? "Hide password" : "Show password"}
+      </button>
+
+      {error && (
+        <p role="alert" aria-live="polite">
+          {error}
+        </p>
+      )}
 
       <button type="submit" disabled={isSubmitting}>
         {isSubmitting ? "Logging in..." : "Login"}
@@ -78,7 +125,11 @@ function LoginForm({ onLogin, onSwitchToRegister }: LoginFormProps) {
 
       <p>
         Don't have an account?{" "}
-        <button type="button" onClick={onSwitchToRegister}>
+        <button
+          type="button"
+          onClick={onSwitchToRegister}
+          disabled={isSubmitting}
+        >
           Create Account
         </button>
       </p>

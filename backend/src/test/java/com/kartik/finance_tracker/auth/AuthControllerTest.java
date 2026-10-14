@@ -2,6 +2,7 @@ package com.kartik.finance_tracker.auth;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -31,9 +33,15 @@ class AuthControllerTest {
 
     private MockMvc mockMvc;
 
+    @Mock
+    private OAuthHandoffService oauthHandoffService;
+
     @BeforeEach
     void setUp() {
-        AuthController authController = new AuthController(authService);
+        AuthController authController = new AuthController(
+                authService,
+                oauthHandoffService
+        );
 
         mockMvc = MockMvcBuilders
                 .standaloneSetup(authController)
@@ -160,22 +168,6 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.message").value(
                         "Password must be between 8 and 100 characters"
                 ));
-    }
-
-    @Test
-    void register_shouldRejectMissingName() throws Exception {
-
-        mockMvc.perform(post("/api/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                    "email": "test@example.com",
-                                    "password": "password123"
-                                }
-                                """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value("Name is required"));
     }
 
     @Test
@@ -359,4 +351,88 @@ class AuthControllerTest {
                         "Invalid refresh token"
                 ));
     }
+
+    @Test
+    void oauthExchange_shouldReturnAuthResponseForValidCode() throws Exception {
+        UUID userId = UUID.randomUUID();
+        MockHttpSession session = new MockHttpSession();
+
+        when(oauthHandoffService.exchangeCode(
+                "valid-handoff-code",
+                session.getId()
+        )).thenReturn(new AuthResponse(
+                userId,
+                "test@example.com",
+                "Test User",
+                "test-access-token",
+                900L,
+                "test-refresh-token"
+        ));
+
+        mockMvc.perform(post("/api/auth/oauth/exchange")
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                        "code": "valid-handoff-code"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(userId.toString()))
+                .andExpect(jsonPath("$.email").value("test@example.com"))
+                .andExpect(jsonPath("$.name").value("Test User"))
+                .andExpect(jsonPath("$.accessToken").value("test-access-token"))
+                .andExpect(jsonPath("$.expiresIn").value(900))
+                .andExpect(jsonPath("$.refreshToken").value("test-refresh-token"));
+
+        verify(oauthHandoffService).exchangeCode(
+                "valid-handoff-code",
+                session.getId()
+        );
+    }
+
+    @Test
+    void oauthExchange_shouldRejectMissingSession() throws Exception {
+        mockMvc.perform(post("/api/auth/oauth/exchange")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                        "code": "valid-handoff-code"
+                                }
+                                """))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(oauthHandoffService);
+    }
+
+    @Test
+    void oauthExchange_shouldRejectInvalidOrExpiredCode() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+
+        when(oauthHandoffService.exchangeCode(
+                "invalid-handoff-code",
+                session.getId()
+        )).thenThrow(new IllegalArgumentException(
+                "Invalid or expired OAuth handoff code"
+        ));
+
+        mockMvc.perform(post("/api/auth/oauth/exchange")
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                        "code": "invalid-handoff-code"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message")
+                        .value("Invalid or expired OAuth handoff code"));
+
+        verify(oauthHandoffService).exchangeCode(
+                "invalid-handoff-code",
+                session.getId()
+        );
+    }
+
 }

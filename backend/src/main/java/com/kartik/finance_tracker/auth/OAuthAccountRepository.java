@@ -1,5 +1,6 @@
 package com.kartik.finance_tracker.auth;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -11,4 +12,6 @@ public interface OAuthAccountRepository extends JpaRepository<OAuthAccount, UUID
             OAuthProvider provider,
             String providerUserId
     );
+
+    List<OAuthAccount> findAllByUserId(UUID userId);
 }

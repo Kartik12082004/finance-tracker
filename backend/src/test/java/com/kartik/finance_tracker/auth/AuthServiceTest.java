@@ -63,8 +63,7 @@ class AuthServiceTest {
 
         RegisterRequest request = new RegisterRequest(
                 "test@example.com",
-                "password123",
-                "Test User"
+                "password123"
         );
 
         UUID userId = UUID.randomUUID();
@@ -78,7 +77,7 @@ class AuthServiceTest {
         User savedUser = new User(
                 request.email(),
                 "hashed-password",
-                request.name()
+                "test"
         );
 
         // Give the saved user a stable ID for verifying the response.
@@ -100,7 +99,7 @@ class AuthServiceTest {
 
         assertEquals(userId, response.userId());
         assertEquals("test@example.com", response.email());
-        assertEquals("Test User", response.name());
+        assertEquals("test", response.name());
         assertEquals("test-access-token", response.accessToken());
         assertEquals(900L, response.expiresIn());
         assertEquals("test-refresh-token", response.refreshToken());
@@ -112,7 +111,7 @@ class AuthServiceTest {
         verify(userRepository).save(any(User.class));
 
         // Every newly registered user must receive the default categories.
-        verify(categoryService).createDefaultCategories(savedUser);
+        verify(categoryService).ensureDefaultCategories(savedUser);
 
         // A successful registration should issue an access token.
         verify(jwtService).generateAccessToken(userId);
@@ -126,8 +125,7 @@ class AuthServiceTest {
 
         RegisterRequest request = new RegisterRequest(
                 "existing@example.com",
-                "password123",
-                "Existing User"
+                "password123"
         );
 
         when(userRepository.existsByEmail(request.email()))
@@ -148,7 +146,7 @@ class AuthServiceTest {
         verify(userRepository, never()).save(any(User.class));
 
         // Default categories must not be created for a rejected registration.
-        verify(categoryService, never()).createDefaultCategories(any());
+        verify(categoryService, never()).ensureDefaultCategories(any());
 
         // Failed registration must not issue either type of token.
         verify(jwtService, never()).generateAccessToken(any());

@@ -1,5 +1,6 @@
 package com.kartik.finance_tracker.security;
 
+import com.kartik.finance_tracker.auth.OAuth2LoginFailureHandler;
 import com.kartik.finance_tracker.auth.OAuth2LoginSuccessHandler;
 
 import java.util.List;
@@ -17,11 +18,14 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     private final OAuth2LoginSuccessHandler oauth2LoginSuccessHandler;
+    private final OAuth2LoginFailureHandler oauth2LoginFailureHandler;
 
     public SecurityConfig(
-            OAuth2LoginSuccessHandler oauth2LoginSuccessHandler
+            OAuth2LoginSuccessHandler oauth2LoginSuccessHandler,
+            OAuth2LoginFailureHandler oauth2LoginFailureHandler
     ) {
         this.oauth2LoginSuccessHandler = oauth2LoginSuccessHandler;
+        this.oauth2LoginFailureHandler = oauth2LoginFailureHandler;
     }
 
     @Bean
@@ -30,14 +34,8 @@ public class SecurityConfig {
     ) throws Exception {
 
         http
-                // This API uses JWT bearer tokens rather than browser sessions.
-                // CSRF protection is therefore not needed for our REST API.
                 .csrf(csrf -> csrf.disable())
-
                 .cors(cors -> {})
-
-                // Authentication endpoints, OAuth2 login flow, and CORS
-                // preflight requests must remain public.
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
                                 HttpMethod.OPTIONS,
@@ -50,14 +48,10 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
-
-                // Enable OAuth2 Login and send successful logins through
-                // our own user-mapping handler.
                 .oauth2Login(oauth2 -> oauth2
                         .successHandler(oauth2LoginSuccessHandler)
+                        .failureHandler(oauth2LoginFailureHandler)
                 )
-
-                // Enable JWT bearer-token authentication for REST requests.
                 .oauth2ResourceServer(resourceServer -> resourceServer
                         .jwt(jwt -> {})
                 );
@@ -90,6 +84,8 @@ public class SecurityConfig {
                         "Content-Type"
                 )
         );
+
+        configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source =
                 new UrlBasedCorsConfigurationSource();

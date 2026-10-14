@@ -8,7 +8,6 @@ type LoginRequest = {
 type RegisterRequest = {
   email: string;
   password: string;
-  name: string;
 };
 
 type RefreshTokenRequest = {
@@ -62,6 +61,26 @@ export async function refreshToken(
 
   if (!response.ok) {
     throw new Error("Token refresh failed.");
+  }
+
+  return response.json();
+}
+
+export async function exchangeOAuthCode(code: string): Promise<AuthResponse> {
+  const response = await fetch(
+    "http://localhost:8080/api/auth/oauth/exchange",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ code }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error("OAuth authentication failed.");
   }
 
   return response.json();

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.kartik.finance_tracker.categories.CategoryService;
 import com.kartik.finance_tracker.users.User;
 import com.kartik.finance_tracker.users.UserRepository;
 
@@ -27,13 +28,17 @@ class OAuthAccountServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private CategoryService categoryService;
+
     private OAuthAccountService oauthAccountService;
 
     @BeforeEach
     void setUp() {
         oauthAccountService = new OAuthAccountService(
                 oauthAccountRepository,
-                userRepository
+                userRepository,
+                categoryService
         );
     }
 
@@ -171,4 +176,98 @@ class OAuthAccountServiceTest {
                 "123"
         );
     }
+
+    @Test
+    void linkOAuthAccount_shouldSaveNewProviderIdentity() {
+        User user = new User(
+                "user@example.com",
+                "password-hash",
+                "Test User"
+        );
+
+        when(oauthAccountRepository.findByProviderAndProviderUserId(
+                OAuthProvider.GITHUB,
+                "github-123"
+        )).thenReturn(Optional.empty());
+
+        oauthAccountService.linkOAuthAccount(
+                user,
+                OAuthProvider.GITHUB,
+                "github-123"
+        );
+
+        verify(oauthAccountRepository).save(any(OAuthAccount.class));
+    }
+
+    @Test
+    void linkOAuthAccount_shouldDoNothingWhenAlreadyLinkedToSameUser() {
+        User user = new User(
+                "user@example.com",
+                "password-hash",
+                "Test User"
+        );
+
+        OAuthAccount existingAccount = new OAuthAccount(
+                user,
+                OAuthProvider.GITHUB,
+                "github-123"
+        );
+
+        when(oauthAccountRepository.findByProviderAndProviderUserId(
+                OAuthProvider.GITHUB,
+                "github-123"
+        )).thenReturn(Optional.of(existingAccount));
+
+        oauthAccountService.linkOAuthAccount(
+                user,
+                OAuthProvider.GITHUB,
+                "github-123"
+        );
+
+        verify(oauthAccountRepository, never()).save(any(OAuthAccount.class));
+    }
+
+    @Test
+    void linkOAuthAccount_shouldRejectIdentityLinkedToAnotherUser() {
+        User existingUser = new User(
+                "existing@example.com",
+                "password-hash",
+                "Existing User"
+        );
+
+        User requestingUser = new User(
+                "requesting@example.com",
+                "password-hash",
+                "Requesting User"
+        );
+
+        OAuthAccount existingAccount = new OAuthAccount(
+                existingUser,
+                OAuthProvider.GITHUB,
+                "github-123"
+        );
+
+        when(oauthAccountRepository.findByProviderAndProviderUserId(
+                OAuthProvider.GITHUB,
+                "github-123"
+        )).thenReturn(Optional.of(existingAccount));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> oauthAccountService.linkOAuthAccount(
+                        requestingUser,
+                        OAuthProvider.GITHUB,
+                        "github-123"
+                )
+        );
+
+        assertEquals(
+                "This OAuth account is already linked to another Finance Tracker account.",
+                exception.getMessage()
+        );
+
+        verify(oauthAccountRepository, never()).save(any(OAuthAccount.class));
+    }
+
+
 }

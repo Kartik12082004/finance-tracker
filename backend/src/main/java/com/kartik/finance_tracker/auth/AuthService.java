@@ -48,10 +48,13 @@ public class AuthService {
         // Hash the password before creating the user.
         String passwordHash = passwordEncoder.encode(request.password());
 
+        String defaultName = request.email()
+                .substring(0, request.email().lastIndexOf('@'));
+
         User user = new User(
                 request.email(),
                 passwordHash,
-                request.name()
+                defaultName
         );
 
         User savedUser = userRepository.save(user);
@@ -60,7 +63,7 @@ public class AuthService {
          * Every newly registered user receives the application's
          * default category hierarchy.
          */
-        categoryService.createDefaultCategories(savedUser);
+        categoryService.ensureDefaultCategories(savedUser);
 
         // Issue an access token immediately after successful registration.
         String accessToken = jwtService.generateAccessToken(savedUser.getId());
