@@ -221,12 +221,33 @@ public class AnalyticsService {
          * Reuse AccountBalanceService so balance rules remain in one place.
          * This includes transfers and credit-card balance semantics.
          */
+
         return accounts.stream()
-                .map(account -> new AccountBalanceResponse(
-                        account.getId(),
-                        account.getName(),
-                        accountBalanceService.calculateBalance(account.getId())
-                ))
+                .map(account -> {
+                    BigDecimal balance =
+                            accountBalanceService.calculateBalance(account.getId());
+
+                    BigDecimal creditLimit = account.getCreditLimit();
+                    BigDecimal availableCredit = null;
+
+                    if (account.getType() == com.kartik.finance_tracker.accounts.AccountType.CREDIT_CARD
+                           && creditLimit != null) {
+                        BigDecimal outstandingDebt = balance.max(BigDecimal.ZERO);
+                        availableCredit = creditLimit
+                                .subtract(outstandingDebt)
+                                .max(BigDecimal.ZERO);
+                    }
+
+                    return new AccountBalanceResponse(
+                            account.getId(),
+                            account.getName(),
+                            account.getType(),
+                            account.getCurrency(),
+                            balance,
+                            creditLimit,
+                            availableCredit
+                    );
+                })
                 .toList();
     }
 }

@@ -211,6 +211,15 @@ public class TransactionService {
                 throw new IllegalArgumentException(
                         "Credit card cannot be the source of a transfer");
             }
+            if (destinationAccount.getType() == AccountType.CREDIT_CARD) {
+                Account linkedBank = destinationAccount.getParentAccount();
+
+                if (linkedBank == null
+                        || !linkedBank.getId().equals(account.getId())) {
+                    throw new IllegalArgumentException(
+                            "Credit card payments must come from the linked bank account");
+                }
+            }
         } else {
             if (account.getType() == AccountType.GOAL) {
                 throw new IllegalArgumentException(
@@ -298,7 +307,8 @@ public class TransactionService {
             throw new ResourceNotFoundException("User not found");
         }
 
-        return transactionRepository.findAllByUser_Id(userId);
+        return transactionRepository
+                .findAllByUser_IdOrderByOccurredAtDesc(userId);
     }
 
     private void evictMonthlySummaryCache(
@@ -333,6 +343,26 @@ public class TransactionService {
 
         if (type == TransactionType.EXPENSE) {
             if (account.getType() == AccountType.CREDIT_CARD) {
+                BigDecimal creditLimit = account.getCreditLimit();
+
+                if (creditLimit == null || creditLimit.signum() <= 0) {
+                    throw new IllegalArgumentException(
+                            "Credit card must have a valid credit limit"
+                    );
+                }
+
+                // A negative card balance represents an overpayment.
+                // Overpayment does not increase the card's contractual limit.
+                BigDecimal outstandingDebt = currentBalance.max(BigDecimal.ZERO);
+                BigDecimal availableCredit =
+                        creditLimit.subtract(outstandingDebt).max(BigDecimal.ZERO);
+
+                if (amount.compareTo(availableCredit) > 0) {
+                    throw new IllegalArgumentException(
+                            "Expense exceeds available credit"
+                    );
+                }
+
                 return;
             }
 
@@ -351,11 +381,19 @@ public class TransactionService {
             if (destinationAccount.getType() == AccountType.CREDIT_CARD) {
                 BigDecimal currentCardBalance =
                         accountBalanceService.calculateBalance(
-                                destinationAccount.getId());
+                                destinationAccount.getId()
+                        );
+
+                if (currentCardBalance.signum() <= 0) {
+                    throw new IllegalArgumentException(
+                            "Credit card has no outstanding debt to pay"
+                    );
+                }
 
                 if (amount.compareTo(currentCardBalance) > 0) {
                     throw new IllegalArgumentException(
-                            "Credit card payment exceeds amount owed");
+                            "Credit card payment exceeds amount owed"
+                    );
                 }
             }
         }

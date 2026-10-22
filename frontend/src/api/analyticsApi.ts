@@ -1,9 +1,14 @@
 import { apiRequest } from "./apiClient";
+import type { AccountType } from "../types/account";
 
 export type AccountBalance = {
   accountId: string;
   accountName: string;
+  accountType: AccountType;
+  currency: string;
   balance: number;
+  creditLimit: number | null;
+  availableCredit: number | null;
 };
 
 export type MonthlySummary = {

@@ -15,6 +15,7 @@ public record GoalResponse(
         BigDecimal currentAmount,
         LocalDate targetDate,
         GoalStatus status,
+        boolean archived,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {}

@@ -50,7 +50,9 @@ public class AccountController {
                 request.name(),
                 request.type(),
                 request.currency(),
-                request.openingBalance()
+                request.openingBalance(),
+                request.creditLimit(),
+                request.parentAccountId()
         );
 
         // The controller converts the domain entity into a response DTO
@@ -72,7 +74,9 @@ public class AccountController {
                 accountId,
                 request.name(),
                 request.type(),
-                request.currency()
+                request.currency(),
+                request.creditLimit(),
+                request.parentAccountId()
         );
 
         return toResponse(account);
@@ -124,6 +128,10 @@ public class AccountController {
                 account.getType(),
                 account.getCurrency(),
                 account.getOpeningBalance(),
+                account.getCreditLimit(),
+                account.getParentAccount() == null
+                        ? null
+                        : account.getParentAccount().getId(),
                 account.getCreatedAt(),
                 account.getUpdatedAt()
         );

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import com.kartik.finance_tracker.common.exception.ResourceNotFoundException;
+import com.kartik.finance_tracker.goals.GoalRepository;
 import com.kartik.finance_tracker.investments.InvestmentTransactionRepository;
 import com.kartik.finance_tracker.transactions.TransactionRepository;
 import com.kartik.finance_tracker.users.User;
@@ -35,14 +36,15 @@ class AccountServiceTest {
         accountRepository = mock(AccountRepository.class);
         userRepository = mock(UserRepository.class);
         transactionRepository = mock(TransactionRepository.class);
-        investmentTransactionRepository =
-                mock(InvestmentTransactionRepository.class);
+        investmentTransactionRepository = mock(InvestmentTransactionRepository.class);
+        GoalRepository goalRepository = mock(GoalRepository.class);
 
         accountService = new AccountService(
                 accountRepository,
                 userRepository,
                 transactionRepository,
-                investmentTransactionRepository
+                investmentTransactionRepository,
+                goalRepository
         );
 
         user = new User(
@@ -76,7 +78,9 @@ class AccountServiceTest {
                 "HDFC Savings",
                 AccountType.BANK,
                 "INR",
-                openingBalance
+                openingBalance,
+                null,
+                null
         );
 
         assertThat(result).isSameAs(savedAccount);
@@ -108,7 +112,9 @@ class AccountServiceTest {
                         "Goal - Gaming PC",
                         AccountType.GOAL,
                         "INR",
-                        BigDecimal.ZERO
+                        BigDecimal.ZERO,
+                        null,
+                        null
                 ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(
@@ -184,7 +190,9 @@ class AccountServiceTest {
                         accountId,
                         "Renamed Goal",
                         AccountType.GOAL,
-                        "INR"
+                        "INR",
+                        null,
+                        null
                 ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(
@@ -216,7 +224,9 @@ class AccountServiceTest {
                         accountId,
                         "Goal - Gaming PC",
                         AccountType.GOAL,
-                        "INR"
+                        "INR",
+                        null,
+                        null
                 ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(

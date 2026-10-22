@@ -33,14 +33,26 @@ public class Account {
             String currency,
             BigDecimal openingBalance
     ) {
-        // Generate the ID in the application rather than relying on the database.
-        this.id = UUID.randomUUID();
+        this(user, name, type, currency, openingBalance, null, null);
+    }
 
+    public Account(
+            User user,
+            String name,
+            AccountType type,
+            String currency,
+            BigDecimal openingBalance,
+            BigDecimal creditLimit,
+            Account parentAccount
+    ) {
+        this.id = UUID.randomUUID();
         this.user = user;
         this.name = name;
         this.type = type;
         this.currency = currency;
         this.openingBalance = openingBalance;
+        this.creditLimit = creditLimit;
+        this.parentAccount = parentAccount;
 
         OffsetDateTime now = OffsetDateTime.now();
         this.createdAt = now;
@@ -50,7 +62,6 @@ public class Account {
     @Id
     private UUID id;
 
-    // Each account belongs to exactly one user.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
@@ -67,6 +78,13 @@ public class Account {
 
     @Column(name = "opening_balance", nullable = false, precision = 19, scale = 2)
     private BigDecimal openingBalance;
+
+    @Column(name = "credit_limit", precision = 19, scale = 2)
+    private BigDecimal creditLimit;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_account_id")
+    private Account parentAccount;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;

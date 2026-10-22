@@ -11,6 +11,8 @@ export type Account = {
   type: AccountType;
   currency: string;
   openingBalance: number;
+  creditLimit: number | null;
+  parentAccountId: string | null;
   createdAt: string;
   updatedAt: string;
 };

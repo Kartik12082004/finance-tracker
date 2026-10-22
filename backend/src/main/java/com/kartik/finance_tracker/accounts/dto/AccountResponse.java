@@ -12,7 +12,8 @@ public record AccountResponse(
         AccountType type,
         String currency,
         BigDecimal openingBalance,
+        BigDecimal creditLimit,
+        UUID parentAccountId,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
-) {
-}
+) {}

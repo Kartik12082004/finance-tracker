@@ -57,6 +57,25 @@ import {
   useNavigate,
 } from "react-router-dom";
 
+import AuthLayout from "./components/AuthLayout";
+
+import type { LucideIcon } from "lucide-react";
+
+import {
+  ArrowLeftRight,
+  CalendarClock,
+  ChartNoAxesCombined,
+  ChevronDown,
+  ChevronUp,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Settings,
+  Tags,
+  Target,
+  Wallet,
+} from "lucide-react";
+
 type Section =
   | "dashboard"
   | "accounts"
@@ -68,55 +87,39 @@ type Section =
   | "categories"
   | "settings";
 
-const navigationItems: {
-  id: Section;
+const navigationGroups: {
   label: string;
-  icon: string;
+  items: {
+    id: Exclude<Section, "settings">;
+    label: string;
+    icon: LucideIcon;
+  }[];
 }[] = [
   {
-    id: "dashboard",
-    label: "Dashboard",
-    icon: "⌂",
+    label: "Overview",
+    items: [{ id: "dashboard", label: "Dashboard", icon: LayoutDashboard }],
   },
   {
-    id: "accounts",
-    label: "Accounts",
-    icon: "▣",
+    label: "Money",
+    items: [
+      { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
+      { id: "accounts", label: "Accounts", icon: Wallet },
+      { id: "categories", label: "Categories", icon: Tags },
+    ],
   },
   {
-    id: "transactions",
-    label: "Transactions",
-    icon: "↕",
+    label: "Planning",
+    items: [
+      { id: "budgets", label: "Budgets", icon: ChartNoAxesCombined },
+      { id: "goals", label: "Goals", icon: Target },
+      { id: "recurring", label: "Recurring", icon: CalendarClock },
+    ],
   },
   {
-    id: "categories",
-    label: "Categories",
-    icon: "≡",
-  },
-  {
-    id: "budgets",
-    label: "Budgets",
-    icon: "◫",
-  },
-  {
-    id: "goals",
-    label: "Goals",
-    icon: "◎",
-  },
-  {
-    id: "recurring",
-    label: "Recurring",
-    icon: "↻",
-  },
-  {
-    id: "investments",
-    label: "Investments",
-    icon: "↗",
-  },
-  {
-    id: "settings",
-    label: "Account Settings",
-    icon: "⚙",
+    label: "Wealth",
+    items: [
+      { id: "investments", label: "Investments", icon: ChartNoAxesCombined },
+    ],
   },
 ];
 
@@ -140,9 +143,7 @@ function App() {
       providerError === "google_link_failed" ||
       providerError === "account_link_failed";
 
-    if (isAccountLinkError) {
-      return "";
-    }
+    if (isAccountLinkError) return "";
 
     if (providerError === "oauth_email_exists") {
       return "An account with this email already exists. Log in with that account first.";
@@ -203,12 +204,27 @@ function App() {
       : "dashboard");
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountBalances, setAccountBalances] = useState<AccountBalance[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
+  const [isLoadingFinanceData, setIsLoadingFinanceData] = useState(false);
+  const [financeDataError, setFinanceDataError] = useState("");
+  const [financeDataRefreshKey, setFinanceDataRefreshKey] = useState(0);
+
+  const [duplicateTransaction, setDuplicateTransaction] =
+    useState<Transaction | null>(null);
+
+  const [transactionModalOpenSignal, setTransactionModalOpenSignal] =
+    useState(0);
+
+  // AccountList owns the Add Account button. This callback opens the form modal.
+  const [openAddAccountModal, setOpenAddAccountModal] = useState<
+    (() => void) | null
+  >(null);
 
   const [accountLinkStatus, setAccountLinkStatus] =
     useState<AccountLinkStatus | null>(null);
@@ -225,17 +241,11 @@ function App() {
 
   useEffect(() => {
     function handlePageShow(event: PageTransitionEvent) {
-      // Only reset state when the browser restores a page
-      // from its back-forward cache.
-      if (!event.persisted) {
-        return;
-      }
+      if (!event.persisted) return;
 
       setIsLinkingAccount(false);
       setUnlinkingProvider(null);
       setIsLoadingAccountLinkStatus(false);
-
-      // Refresh connected-account status if Settings is open.
       setAccountLinkRefreshKey((current) => current + 1);
     }
 
@@ -247,9 +257,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (oauthCallbackHandled.current) {
-      return;
-    }
+    if (oauthCallbackHandled.current) return;
 
     const hash = window.location.hash;
 
@@ -280,13 +288,11 @@ function App() {
       window.location.pathname + window.location.search,
     );
 
-    // Account-link success messages are initialized from the URL hash.
     if (linkedProvider === "github" || linkedProvider === "google") {
       navigate("/settings", { replace: true });
       return;
     }
 
-    // Account-link errors are displayed on Account Settings.
     if (
       providerError === "github_link_failed" ||
       providerError === "google_link_failed" ||
@@ -296,10 +302,7 @@ function App() {
       return;
     }
 
-    // OAuth sign-in errors are initialized from the URL hash.
-    if (!code) {
-      return;
-    }
+    if (!code) return;
 
     void exchangeOAuthCode(code)
       .then((response) => {
@@ -314,11 +317,14 @@ function App() {
   }, [navigate, authResponse, location.pathname, isOAuthProcessing]);
 
   useEffect(() => {
-    if (authResponse === null) {
-      return;
-    }
+    if (authResponse === null) return;
+
+    let cancelled = false;
 
     async function loadFinanceData() {
+      setIsLoadingFinanceData(true);
+      setFinanceDataError("");
+
       try {
         const [
           accountsFromApi,
@@ -332,27 +338,47 @@ function App() {
           getTransactions(),
         ]);
 
+        if (cancelled) return;
+
         setAccounts(accountsFromApi);
         setAccountBalances(accountBalancesFromApi);
         setCategories(categoriesFromApi);
         setTransactions(transactionsFromApi);
-      } catch {
-        clearAuthSession();
-        setAuthResponse(null);
-        setAccounts([]);
-        setAccountBalances([]);
-        setCategories([]);
-        setTransactions([]);
+      } catch (error) {
+        if (cancelled) return;
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Could not load your finance data. Please try again.";
+
+        if (message === "Authentication session expired.") {
+          clearAuthSession();
+          setAuthResponse(null);
+          setAccounts([]);
+          setAccountBalances([]);
+          setCategories([]);
+          setTransactions([]);
+          return;
+        }
+
+        setFinanceDataError(
+          "Could not load your finance data. Check your connection and try again.",
+        );
+      } finally {
+        if (!cancelled) setIsLoadingFinanceData(false);
       }
     }
 
     void loadFinanceData();
-  }, [authResponse]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authResponse, financeDataRefreshKey]);
 
   useEffect(() => {
-    if (authResponse === null || activeSection !== "settings") {
-      return;
-    }
+    if (authResponse === null || activeSection !== "settings") return;
 
     let cancelled = false;
 
@@ -362,9 +388,7 @@ function App() {
       try {
         const status = await getAccountLinkStatus();
 
-        if (!cancelled) {
-          setAccountLinkStatus(status);
-        }
+        if (!cancelled) setAccountLinkStatus(status);
       } catch {
         if (!cancelled) {
           setAccountLinkMessage(
@@ -372,9 +396,7 @@ function App() {
           );
         }
       } finally {
-        if (!cancelled) {
-          setIsLoadingAccountLinkStatus(false);
-        }
+        if (!cancelled) setIsLoadingAccountLinkStatus(false);
       }
     }
 
@@ -472,6 +494,8 @@ function App() {
     type: AccountType,
     currency: string,
     openingBalance: number,
+    creditLimit: number | null,
+    parentAccountId: string | null,
   ) {
     if (authResponse === null) {
       throw new Error("User is not authenticated.");
@@ -482,9 +506,11 @@ function App() {
       type,
       currency,
       openingBalance,
+      creditLimit,
+      parentAccountId,
     });
 
-    setAccounts((currentAccounts) => [...currentAccounts, createdAccount]);
+    setAccounts((current) => [...current, createdAccount]);
 
     const updatedBalances = await getAccountBalances();
     setAccountBalances(updatedBalances);
@@ -496,6 +522,8 @@ function App() {
     name: string,
     type: AccountType,
     currency: string,
+    creditLimit: number | null,
+    parentAccountId: string | null,
   ) {
     if (authResponse === null) {
       throw new Error("User is not authenticated.");
@@ -505,13 +533,19 @@ function App() {
       name,
       type,
       currency,
+      creditLimit,
+      parentAccountId,
     });
 
-    setAccounts((currentAccounts) =>
-      currentAccounts.map((account) =>
+    setAccounts((current) =>
+      current.map((account) =>
         account.id === accountId ? updatedAccount : account,
       ),
     );
+
+    const updatedBalances = await getAccountBalances();
+    setAccountBalances(updatedBalances);
+    setDashboardRefreshKey((current) => current + 1);
   }
 
   async function removeAccount(accountId: string) {
@@ -574,6 +608,7 @@ function App() {
   function handleNavigation(section: Section) {
     navigate(`/${section}`);
     setMobileNavOpen(false);
+    setAccountMenuOpen(false);
   }
 
   function renderPage() {
@@ -585,25 +620,18 @@ function App() {
 
       case "accounts":
         return (
-          <div className="page-stack">
-            <section className="page-section">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">Financial accounts</p>
-                  <h2>Your Accounts</h2>
-                  <p className="section-description">
-                    Manage the accounts connected to your finance tracker.
-                  </p>
-                </div>
-              </div>
+          <div className="page-stack accounts-page">
+            <section className="page-section accounts-section">
+              <AddAccountForm
+                accounts={accounts}
+                onAddAccount={addAccount}
+                onOpen={(open) => setOpenAddAccountModal(() => open)}
+              />
 
-              <AddAccountForm onAddAccount={addAccount} />
-            </section>
-
-            <section className="page-section">
               <AccountList
                 accounts={accounts}
                 accountBalances={accountBalances}
+                onAddAccount={() => openAddAccountModal?.()}
                 onRemoveAccount={removeAccount}
                 onUpdateAccount={updateExistingAccount}
               />
@@ -613,31 +641,28 @@ function App() {
 
       case "transactions":
         return (
-          <div className="page-stack">
-            <section className="page-section">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">Money movement</p>
-                  <h2>Transactions</h2>
-                  <p className="section-description">
-                    Record and review your income, expenses, and transfers.
-                  </p>
-                </div>
-              </div>
-
+          <div className="page-stack transactions-page">
+            <section className="page-section transactions-section">
               <AddTransactionForm
                 accounts={accounts}
                 categories={categories}
+                accountBalances={accountBalances}
                 onTransactionCreated={refreshTransactions}
+                duplicateTransaction={duplicateTransaction}
+                onDuplicateConsumed={() => setDuplicateTransaction(null)}
+                openSignal={transactionModalOpenSignal}
+                hideTrigger
               />
-            </section>
 
-            <section className="page-section">
               <TransactionList
                 transactions={transactions}
                 accounts={accounts}
                 categories={categories}
                 onVoidTransaction={handleVoidTransaction}
+                onDuplicateTransaction={setDuplicateTransaction}
+                onAddTransaction={() =>
+                  setTransactionModalOpenSignal((current) => current + 1)
+                }
               />
             </section>
           </div>
@@ -683,100 +708,217 @@ function App() {
 
       case "settings":
         return (
-          <div className="page-section">
-            <h2>Account Settings</h2>
-            <p>Manage your sign-in methods and connected accounts.</p>
+          <div className="page-stack settings-page">
+            <header className="settings-page-header">
+              <div>
+                <p className="page-kicker">Preferences & security</p>
+                <h1>Account Settings</h1>
+                <p className="settings-page-description">
+                  Manage how you sign in and which accounts are connected to
+                  your Finance Tracker profile.
+                </p>
+              </div>
+              <div className="settings-header-icon" aria-hidden="true">
+                <Settings size={24} />
+              </div>
+            </header>
 
-            <section aria-labelledby="connected-accounts-heading">
-              <h3 id="connected-accounts-heading">Connected accounts</h3>
+            <section
+              className="page-section settings-section"
+              aria-labelledby="connected-accounts-heading"
+            >
+              <div className="settings-section-heading">
+                <div className="settings-section-icon" aria-hidden="true">
+                  <Wallet size={19} />
+                </div>
+                <div>
+                  <h2 id="connected-accounts-heading">Connected accounts</h2>
+                  <p className="section-description">
+                    Connect Google or GitHub for convenient sign-in, or
+                    disconnect an account you no longer use.
+                  </p>
+                </div>
+              </div>
 
               {isLoadingAccountLinkStatus && (
-                <p role="status">Loading connected accounts...</p>
+                <div className="settings-feedback" role="status">
+                  <span className="settings-loading-indicator" />
+                  <span>Loading your connected accounts...</span>
+                </div>
               )}
 
               {!isLoadingAccountLinkStatus && accountLinkStatus === null && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAccountLinkStatus(null);
-                    setAccountLinkRefreshKey((current) => current + 1);
-                  }}
-                >
-                  Retry loading connected accounts
-                </button>
+                <div className="settings-load-error" role="alert">
+                  <div>
+                    <strong>Couldn&apos;t load connected accounts</strong>
+                    <p>
+                      Check your connection and try loading the status again.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="settings-button settings-button-primary"
+                    onClick={() => {
+                      setAccountLinkStatus(null);
+                      setAccountLinkRefreshKey((current) => current + 1);
+                    }}
+                    disabled={isLoadingAccountLinkStatus}
+                  >
+                    Retry
+                  </button>
+                </div>
               )}
 
               {accountLinkStatus !== null && (
-                <div>
-                  <div>
-                    <h4>Google</h4>
+                <div className="settings-provider-list">
+                  <article className="settings-provider-card">
+                    <div className="settings-provider-identity">
+                      <div className="settings-provider-logo settings-google-logo">
+                        <svg viewBox="0 0 48 48" aria-hidden="true">
+                          <path
+                            fill="#4285F4"
+                            d="M43.6 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h11a9.4 9.4 0 0 1-4.1 6.2v5.5h6.7c3.9-3.6 6-9 6-15.7Z"
+                          />
+                          <path
+                            fill="#34A853"
+                            d="M24 44c5.5 0 10.1-1.8 13.5-4.8l-6.7-5.5c-1.8 1.2-4 2-6.8 2-5.2 0-9.6-3.5-11.2-8.2H5.9v5.7A20 20 0 0 0 24 44Z"
+                          />
+                          <path
+                            fill="#FBBC05"
+                            d="M12.8 27.5a12 12 0 0 1 0-7v-5.7H5.9a20 20 0 0 0 0 18.4l6.9-5.7Z"
+                          />
+                          <path
+                            fill="#EA4335"
+                            d="M24 12.3c3 0 5.7 1 7.8 3.1l5.9-5.9A19.7 19.7 0 0 0 24 4 20 20 0 0 0 5.9 14.8l6.9 5.7c1.6-4.7 6-8.2 11.2-8.2Z"
+                          />
+                        </svg>
+                      </div>
+                      <div className="settings-provider-details">
+                        <h3>Google</h3>
+                        <p>
+                          {accountLinkStatus.googleLinked
+                            ? "Your Google account is connected."
+                            : "Sign in using your Google account."}
+                        </p>
+                      </div>
+                    </div>
 
-                    <p>
-                      {accountLinkStatus.googleLinked
-                        ? "Connected"
-                        : "Not connected"}
-                    </p>
-
-                    {accountLinkStatus.googleLinked ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleUnlinkAccount("google")}
-                        disabled={
-                          isLinkingAccount || unlinkingProvider !== null
-                        }
+                    <div className="settings-provider-actions">
+                      <span
+                        className={`settings-status ${
+                          accountLinkStatus.googleLinked
+                            ? "settings-status-connected"
+                            : "settings-status-disconnected"
+                        }`}
                       >
-                        {unlinkingProvider === "google"
-                          ? "Disconnecting..."
-                          : "Disconnect Google"}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void handleLinkAccount("google")}
-                        disabled={
-                          isLinkingAccount || unlinkingProvider !== null
-                        }
-                      >
-                        {isLinkingAccount ? "Connecting..." : "Connect Google"}
-                      </button>
-                    )}
-                  </div>
+                        <span className="settings-status-dot" />
+                        {accountLinkStatus.googleLinked
+                          ? "Connected"
+                          : "Not connected"}
+                      </span>
 
-                  <div>
-                    <h4>GitHub</h4>
+                      {accountLinkStatus.googleLinked ? (
+                        <button
+                          type="button"
+                          className="settings-button settings-button-danger"
+                          onClick={() => void handleUnlinkAccount("google")}
+                          disabled={
+                            isLinkingAccount || unlinkingProvider !== null
+                          }
+                        >
+                          {unlinkingProvider === "google"
+                            ? "Disconnecting..."
+                            : "Disconnect"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="settings-button settings-button-primary"
+                          onClick={() => void handleLinkAccount("google")}
+                          disabled={
+                            isLinkingAccount || unlinkingProvider !== null
+                          }
+                        >
+                          {isLinkingAccount ? "Connecting..." : "Connect"}
+                        </button>
+                      )}
+                    </div>
+                  </article>
 
-                    <p>
-                      {accountLinkStatus.githubLinked
-                        ? "Connected"
-                        : "Not connected"}
-                    </p>
+                  <article className="settings-provider-card">
+                    <div className="settings-provider-identity">
+                      <div className="settings-provider-logo settings-github-logo">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            fill="currentColor"
+                            d="M12 .9a11.1 11.1 0 0 0-3.5 21.6c.6.1.8-.3.8-.6v-2.1c-3.1.7-3.8-1.3-3.8-1.3-.5-1.3-1.3-1.6-1.3-1.6-1-.7.1-.7.1-.7 1.1.1 1.7 1.2 1.7 1.2 1 1.7 2.6 1.2 3.3.9.1-.7.4-1.2.7-1.5-2.5-.3-5.1-1.3-5.1-5.5 0-1.2.4-2.2 1.2-3-.1-.3-.5-1.4.1-2.9 0 0 1-.3 3.1 1.2a10.7 10.7 0 0 1 5.6 0C17 5.2 18 5.5 18 5.5c.6 1.5.2 2.6.1 2.9.8.8 1.2 1.8 1.2 3 0 4.2-2.6 5.2-5.1 5.5.4.3.7 1 .7 1.9v3.1c0 .3.2.7.8.6A11.1 11.1 0 0 0 12 .9Z"
+                          />
+                        </svg>
+                      </div>
+                      <div className="settings-provider-details">
+                        <h3>GitHub</h3>
+                        <p>
+                          {accountLinkStatus.githubLinked
+                            ? "Your GitHub account is connected."
+                            : "Sign in using your GitHub account."}
+                        </p>
+                      </div>
+                    </div>
 
-                    {accountLinkStatus.githubLinked ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleUnlinkAccount("github")}
-                        disabled={
-                          isLinkingAccount || unlinkingProvider !== null
-                        }
+                    <div className="settings-provider-actions">
+                      <span
+                        className={`settings-status ${
+                          accountLinkStatus.githubLinked
+                            ? "settings-status-connected"
+                            : "settings-status-disconnected"
+                        }`}
                       >
-                        {unlinkingProvider === "github"
-                          ? "Disconnecting..."
-                          : "Disconnect GitHub"}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void handleLinkAccount("github")}
-                        disabled={
-                          isLinkingAccount || unlinkingProvider !== null
-                        }
-                      >
-                        {isLinkingAccount ? "Connecting..." : "Connect GitHub"}
-                      </button>
-                    )}
-                  </div>
+                        <span className="settings-status-dot" />
+                        {accountLinkStatus.githubLinked
+                          ? "Connected"
+                          : "Not connected"}
+                      </span>
+
+                      {accountLinkStatus.githubLinked ? (
+                        <button
+                          type="button"
+                          className="settings-button settings-button-danger"
+                          onClick={() => void handleUnlinkAccount("github")}
+                          disabled={
+                            isLinkingAccount || unlinkingProvider !== null
+                          }
+                        >
+                          {unlinkingProvider === "github"
+                            ? "Disconnecting..."
+                            : "Disconnect"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="settings-button settings-button-primary"
+                          onClick={() => void handleLinkAccount("github")}
+                          disabled={
+                            isLinkingAccount || unlinkingProvider !== null
+                          }
+                        >
+                          {isLinkingAccount ? "Connecting..." : "Connect"}
+                        </button>
+                      )}
+                    </div>
+                  </article>
                 </div>
               )}
+
+              <div className="settings-security-note">
+                <div className="settings-security-icon" aria-hidden="true">
+                  <Settings size={17} />
+                </div>
+                <p>
+                  <strong>Keep your sign-in options accessible.</strong> Before
+                  disconnecting a provider, make sure you can still access your
+                  account using another available sign-in method.
+                </p>
+              </div>
             </section>
           </div>
         );
@@ -813,17 +955,19 @@ function App() {
 
     if (isRegisterPage) {
       return (
-        <RegisterForm
-          onRegister={handleRegister}
-          onSwitchToLogin={() => {
-            navigate("/login");
-          }}
-        />
+        <AuthLayout variant="register">
+          <RegisterForm
+            onRegister={handleRegister}
+            onSwitchToLogin={() => {
+              navigate("/login");
+            }}
+          />
+        </AuthLayout>
       );
     }
 
     return (
-      <>
+      <AuthLayout variant="login">
         {oauthError && <p role="alert">{oauthError}</p>}
 
         <LoginForm
@@ -832,11 +976,9 @@ function App() {
             navigate("/register");
           }}
         />
-      </>
+      </AuthLayout>
     );
   }
-
-  const activeItem = navigationItems.find((item) => item.id === activeSection);
 
   return (
     <div className="app-shell">
@@ -860,28 +1002,45 @@ function App() {
         </div>
 
         <nav className="sidebar-nav" aria-label="Main navigation">
-          <div className="nav-label">Workspace</div>
+          {navigationGroups.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <div className="nav-label">{group.label}</div>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeSection === item.id;
 
-          {navigationItems.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`nav-item ${
-                activeSection === item.id ? "nav-item-active" : ""
-              }`}
-              onClick={() => handleNavigation(item.id)}
-            >
-              <span className="nav-icon" aria-hidden="true">
-                {item.icon}
-              </span>
-
-              <span>{item.label}</span>
-            </button>
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`nav-item ${isActive ? "nav-item-active" : ""}`}
+                    aria-current={isActive ? "page" : undefined}
+                    onClick={() => handleNavigation(item.id)}
+                  >
+                    <Icon
+                      className="nav-icon"
+                      size={18}
+                      strokeWidth={isActive ? 2.3 : 1.9}
+                      aria-hidden="true"
+                    />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </nav>
 
         <div className="sidebar-footer">
-          <div className="user-card">
+          <button
+            type="button"
+            className={`user-card account-menu-trigger ${
+              accountMenuOpen ? "account-menu-trigger-open" : ""
+            }`}
+            aria-haspopup="true"
+            aria-expanded={accountMenuOpen}
+            onClick={() => setAccountMenuOpen((open) => !open)}
+          >
             <div className="user-avatar">
               {authResponse.name?.charAt(0).toUpperCase() ?? "U"}
             </div>
@@ -890,61 +1049,109 @@ function App() {
               <strong>{authResponse.name}</strong>
               <span>Personal account</span>
             </div>
-          </div>
 
-          <button
-            type="button"
-            className="logout-button"
-            onClick={handleLogout}
-          >
-            <span aria-hidden="true">↪</span>
-            Logout
+            <span className="account-menu-chevron" aria-hidden="true">
+              {accountMenuOpen ? (
+                <ChevronDown size={16} />
+              ) : (
+                <ChevronUp size={16} />
+              )}
+            </span>
           </button>
+
+          {accountMenuOpen && (
+            <div className="account-menu sidebar-account-menu">
+              <button
+                type="button"
+                className="account-menu-item"
+                onClick={() => handleNavigation("settings")}
+              >
+                <Settings size={16} aria-hidden="true" />
+                Account Settings
+              </button>
+
+              <button
+                type="button"
+                className="account-menu-item account-menu-logout"
+                onClick={handleLogout}
+              >
+                <LogOut size={16} aria-hidden="true" />
+                Log out
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
       <main className="main-content">
-        <header className="topbar">
+        <header className="topbar" aria-label="Mobile header">
           <button
             type="button"
             className="mobile-menu-button"
             aria-label="Open navigation"
+            aria-expanded={mobileNavOpen}
             onClick={() => setMobileNavOpen(true)}
           >
-            ☰
+            <Menu size={20} aria-hidden="true" />
           </button>
-
-          <div className="topbar-page-title">
-            <span className="topbar-kicker">Finance Tracker</span>
-            <strong>{activeItem?.label}</strong>
+          <div className="mobile-header-brand">
+            <span className="mobile-header-mark">F</span>
+            <span>Finance Tracker</span>
           </div>
-
-          <div className="topbar-user">
-            <div className="topbar-avatar">
+          <button
+            type="button"
+            className="mobile-account-button"
+            aria-label="Open account menu"
+            aria-expanded={accountMenuOpen}
+            onClick={() => {
+              setMobileNavOpen(true);
+              setAccountMenuOpen(true);
+            }}
+          >
+            <span className="mobile-account-avatar">
               {authResponse.name?.charAt(0).toUpperCase() ?? "U"}
-            </div>
-
-            <span>{authResponse.name}</span>
-          </div>
+            </span>
+          </button>
         </header>
 
         <div className="content-wrapper">
+          {isLoadingFinanceData && (
+            <p role="status">Loading your finance data...</p>
+          )}
+
+          {financeDataError && (
+            <div role="alert">
+              <p>{financeDataError}</p>
+              <button
+                type="button"
+                onClick={() =>
+                  setFinanceDataRefreshKey((current) => current + 1)
+                }
+                disabled={isLoadingFinanceData}
+              >
+                {isLoadingFinanceData ? "Retrying..." : "Retry loading data"}
+              </button>
+            </div>
+          )}
+
           {accountLinkMessage && (
             <p role="status" aria-live="polite">
               {accountLinkMessage}
             </p>
           )}
 
-          <div className="page-header">
-            <div>
-              <p className="page-kicker">Overview</p>
-              <h1>{activeItem?.label}</h1>
-            </div>
+          {activeSection === "dashboard" ? (
+            <div className="page-header">
+              <div>
+                <p className="page-kicker">Overview</p>
+                <h1>Dashboard</h1>
+              </div>
 
-            <div className="welcome-message">
-              Welcome back, <strong>{authResponse.name}</strong>
+              <div className="welcome-message">
+                Welcome back, <strong>{authResponse.name}</strong>
+              </div>
             </div>
-          </div>
+          ) : null}
 
           <Routes>
             <Route path="/dashboard" element={renderPage()} />

@@ -56,6 +56,13 @@ public class GoalController {
         return ResponseEntity.ok(goalService.getGoals(userId));
     }
 
+    @GetMapping("/archived")
+    public ResponseEntity<List<GoalResponse>> getArchivedGoals() {
+        UUID userId = currentUserService.getCurrentUserId();
+
+        return ResponseEntity.ok(goalService.getArchivedGoals(userId));
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<GoalResponse> updateGoal(
             @PathVariable UUID id,
@@ -113,4 +120,27 @@ public class GoalController {
 
         return ResponseEntity.noContent().build();
     }
+
+    @PatchMapping("/{id}/archive")
+    public ResponseEntity<GoalResponse> archiveGoal(
+                @PathVariable UUID id
+    ) {
+        UUID userId = currentUserService.getCurrentUserId();
+
+        return ResponseEntity.ok(
+                goalService.archiveGoal(userId, id)
+        );
+    }
+
+    @PatchMapping("/{id}/unarchive")
+    public ResponseEntity<GoalResponse> unarchiveGoal(
+                @PathVariable UUID id
+    ) {
+        UUID userId = currentUserService.getCurrentUserId();
+
+        return ResponseEntity.ok(
+                goalService.unarchiveGoal(userId, id)
+        );
+    }
+
 }

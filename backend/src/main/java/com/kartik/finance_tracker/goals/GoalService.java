@@ -75,12 +75,25 @@ public class GoalService {
     public List<GoalResponse> getGoals(UUID userId) {
         getUser(userId);
 
-        return goalRepository.findByUser_Id(userId)
+        return goalRepository.findByUser_IdAndArchivedFalse(userId)
                 .stream()
                 .filter(goal -> goal.getStatus() != GoalStatus.CANCELLED)
                 .map(goal -> {
-                    refreshProgress(goal);
-                    return toResponse(goalRepository.save(goal));
+                        refreshProgress(goal);
+                        return toResponse(goalRepository.save(goal));
+                })
+                .toList();
+    }
+
+    @Transactional
+    public List<GoalResponse> getArchivedGoals(UUID userId) {
+        getUser(userId);
+
+        return goalRepository.findByUser_IdAndArchivedTrue(userId)
+                .stream()
+                .map(goal -> {
+                        refreshProgress(goal);
+                        return toResponse(goalRepository.save(goal));
                 })
                 .toList();
     }
@@ -204,18 +217,19 @@ public class GoalService {
 
     @Transactional
     public void deleteGoal(UUID userId, UUID goalId) {
-        Goal goal = getGoal(userId, goalId);
+        Goal goal = goalRepository.findByIdAndUser_Id(goalId, userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Goal not found"));
 
-        /*
-         * Only an unused Goal Account can be deleted. If transactions exist,
-         * AccountService rejects deletion so financial history is preserved.
-         */
-        accountService.deleteGoalAccount(
-                userId,
-                goal.getAccount().getId()
-        );
+        UUID goalAccountId = goal.getAccount().getId();
 
+        // Delete the goal first so its non-null account_id reference is removed.
         goalRepository.delete(goal);
+        goalRepository.flush();
+
+        // Delete the account only after the goal has been deleted.
+        // This still rejects accounts that have financial transactions.
+        accountService.deleteGoalAccount(userId, goalAccountId);
     }
 
     private void refreshProgress(Goal goal) {
@@ -259,8 +273,34 @@ public class GoalService {
                 goal.getCurrentAmount(),
                 goal.getTargetDate(),
                 goal.getStatus(),
+                goal.isArchived(),
                 goal.getCreatedAt(),
                 goal.getUpdatedAt()
         );
     }
+
+    @Transactional
+    public GoalResponse archiveGoal(UUID userId, UUID goalId) {
+        Goal goal = goalRepository.findByIdAndUser_Id(goalId, userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Goal not found"));
+
+        goal.archive();
+
+        Goal savedGoal = goalRepository.save(goal);
+        return toResponse(savedGoal);
+    }
+
+    @Transactional
+    public GoalResponse unarchiveGoal(UUID userId, UUID goalId) {
+        Goal goal = goalRepository.findByIdAndUser_Id(goalId, userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Goal not found"));
+
+        goal.unarchive();
+
+        Goal savedGoal = goalRepository.save(goal);
+        return toResponse(savedGoal);
+    }
+
 }

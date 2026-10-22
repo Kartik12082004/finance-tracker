@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import com.kartik.finance_tracker.accounts.AccountType;
 import com.kartik.finance_tracker.analytics.dto.AccountBalanceResponse;
 import com.kartik.finance_tracker.analytics.dto.IncomeVsExpenseResponse;
 import com.kartik.finance_tracker.analytics.dto.MonthlySummaryResponse;
@@ -365,7 +366,11 @@ class AnalyticsControllerTest {
                 new AccountBalanceResponse(
                         accountId,
                         "HDFC Savings",
-                        new BigDecimal("83000.00")
+                        AccountType.BANK,
+                        "INR",
+                        new BigDecimal("83000.00"),
+                        null,
+                        null
                 )
         );
 
@@ -381,6 +386,10 @@ class AnalyticsControllerTest {
                         .value(accountId.toString()))
                 .andExpect(jsonPath("$[0].accountName")
                         .value("HDFC Savings"))
+                .andExpect(jsonPath("$[0].accountType")
+                        .value("BANK"))
+                .andExpect(jsonPath("$[0].currency")
+                        .value("INR"))
                 .andExpect(jsonPath("$[0].balance")
                         .value(83000.00));
 

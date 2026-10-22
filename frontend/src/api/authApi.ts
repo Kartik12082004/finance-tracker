@@ -14,6 +14,24 @@ type RefreshTokenRequest = {
   refreshToken: string;
 };
 
+type ApiErrorResponse = {
+  message?: string;
+  error?: string;
+};
+
+async function getErrorMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  try {
+    const body: ApiErrorResponse = await response.json();
+
+    return body.message || body.error || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function register(
   request: RegisterRequest,
 ): Promise<AuthResponse> {
@@ -26,7 +44,7 @@ export async function register(
   });
 
   if (!response.ok) {
-    throw new Error("Registration failed.");
+    throw new Error(await getErrorMessage(response, "Registration failed."));
   }
 
   return response.json();
@@ -42,7 +60,9 @@ export async function login(request: LoginRequest): Promise<AuthResponse> {
   });
 
   if (!response.ok) {
-    throw new Error("Login failed.");
+    throw new Error(
+      await getErrorMessage(response, "Invalid email or password."),
+    );
   }
 
   return response.json();
@@ -60,7 +80,7 @@ export async function refreshToken(
   });
 
   if (!response.ok) {
-    throw new Error("Token refresh failed.");
+    throw new Error(await getErrorMessage(response, "Token refresh failed."));
   }
 
   return response.json();
@@ -80,7 +100,9 @@ export async function exchangeOAuthCode(code: string): Promise<AuthResponse> {
   );
 
   if (!response.ok) {
-    throw new Error("OAuth authentication failed.");
+    throw new Error(
+      await getErrorMessage(response, "OAuth authentication failed."),
+    );
   }
 
   return response.json();

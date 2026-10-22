@@ -10,6 +10,8 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     List<Account> findByUser_Id(UUID userId);
 
+    boolean existsByParentAccount_Id(UUID accountId);
+
     // Only return an account when it belongs to the authenticated user.
     Optional<Account> findByIdAndUser_Id(UUID accountId, UUID userId);
 }

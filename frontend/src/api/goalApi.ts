@@ -56,3 +56,22 @@ export async function deleteGoal(goalId: string): Promise<void> {
     method: "DELETE",
   });
 }
+
+export async function getArchivedGoals(): Promise<Goal[]> {
+  return apiRequest<Goal[]>("http://localhost:8080/api/goals/archived");
+}
+
+export async function archiveGoal(goalId: string): Promise<Goal> {
+  return apiRequest<Goal>(`http://localhost:8080/api/goals/${goalId}/archive`, {
+    method: "PATCH",
+  });
+}
+
+export async function unarchiveGoal(goalId: string): Promise<Goal> {
+  return apiRequest<Goal>(
+    `http://localhost:8080/api/goals/${goalId}/unarchive`,
+    {
+      method: "PATCH",
+    },
+  );
+}

@@ -161,7 +161,8 @@ class GoalServiceTest {
     @Test
     void shouldGetGoalsForUser() {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-        when(goalRepository.findByUser_Id(userId)).thenReturn(List.of(goal));
+        when(goalRepository.findByUser_IdAndArchivedFalse(userId))
+                .thenReturn(List.of(goal));
 
         List<GoalResponse> response = goalService.getGoals(userId);
 
@@ -191,7 +192,7 @@ class GoalServiceTest {
         cancelledGoal.cancel();
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-        when(goalRepository.findByUser_Id(userId))
+        when(goalRepository.findByUser_IdAndArchivedFalse(userId))
                 .thenReturn(List.of(goal, cancelledGoal));
 
         List<GoalResponse> response = goalService.getGoals(userId);

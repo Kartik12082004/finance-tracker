@@ -1,6 +1,7 @@
 package com.kartik.finance_tracker.accounts.dto;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 import com.kartik.finance_tracker.accounts.AccountType;
 
@@ -23,5 +24,10 @@ public record CreateAccountRequest(
 
         @NotNull(message = "Opening balance is required")
         @DecimalMin(value = "0.0", message = "Opening balance cannot be negative")
-        BigDecimal openingBalance
+        BigDecimal openingBalance,
+
+        @DecimalMin(value = "0.01", message = "Credit limit must be greater than zero")
+        BigDecimal creditLimit,
+
+        UUID parentAccountId
 ) {}

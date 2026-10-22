@@ -3,10 +3,12 @@ package com.kartik.finance_tracker.transactions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -185,6 +187,61 @@ class TransactionServiceTest {
     }
 
     @Test
+    void getTransactions_shouldReturnTransactionsNewestFirst() {
+        when(userRepository.existsById(user.getId())).thenReturn(true);
+
+        Transaction olderTransaction = new Transaction(
+                user,
+                bankAccount,
+                null,
+                null,
+                TransactionType.EXPENSE,
+                new BigDecimal("100.00"),
+                "Older expense",
+                OffsetDateTime.parse("2026-09-10T10:00:00+05:30")
+        );
+
+        Transaction newerTransaction = new Transaction(
+                user,
+                bankAccount,
+                null,
+                null,
+                TransactionType.EXPENSE,
+                new BigDecimal("200.00"),
+                "Newer expense",
+                OffsetDateTime.parse("2026-09-15T10:00:00+05:30")
+        );
+
+        when(transactionRepository.findAllByUser_IdOrderByOccurredAtDesc(user.getId()))
+                .thenReturn(List.of(newerTransaction, olderTransaction));
+
+        List<Transaction> result =
+                transactionService.getTransactions(user.getId());
+
+        assertThat(result)
+                .containsExactly(newerTransaction, olderTransaction);
+
+        verify(transactionRepository)
+                .findAllByUser_IdOrderByOccurredAtDesc(user.getId());
+    }
+
+    @Test
+    void getTransactions_shouldRejectUnknownUser() {
+        UUID unknownUserId = UUID.randomUUID();
+
+        when(userRepository.existsById(unknownUserId)).thenReturn(false);
+
+        assertThatThrownBy(
+                () -> transactionService.getTransactions(unknownUserId)
+        )
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("User not found");
+
+        verify(transactionRepository, never())
+                .findAllByUser_IdOrderByOccurredAtDesc(any(UUID.class));
+    }
+
+    @Test
     void createTransaction_shouldRejectExpenseWhenBalanceIsInsufficient() {
         Category category = category("Food", CategoryType.EXPENSE);
 
@@ -268,6 +325,234 @@ class TransactionServiceTest {
     }
 
     @Test
+    void createTransaction_shouldAllowCreditCardExpenseWithinAvailableCredit() {
+        Category category = category("Shopping", CategoryType.EXPENSE);
+
+        Account creditCard = new Account(
+                user,
+                "HDFC Credit Card",
+                AccountType.CREDIT_CARD,
+                "INR",
+                BigDecimal.ZERO,
+                new BigDecimal("10000.00"),
+                bankAccount
+        );
+
+        stubUserAndAccount(creditCard);
+        stubCategory(category);
+
+        when(accountBalanceService.calculateBalance(creditCard.getId()))
+                .thenReturn(new BigDecimal("3000.00"));
+
+        Transaction result = transactionService.createTransaction(
+                user.getId(),
+                creditCard.getId(),
+                null,
+                category.getId(),
+                TransactionType.EXPENSE,
+                new BigDecimal("5000.00"),
+                "Shopping",
+                OffsetDateTime.now()
+        );
+
+        assertThat(result.getType()).isEqualTo(TransactionType.EXPENSE);
+        assertThat(result.getAccount()).isSameAs(creditCard);
+        assertThat(result.getAmount()).isEqualByComparingTo("5000.00");
+
+        verify(transactionRepository).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectCreditCardExpenseExceedingAvailableCredit() {
+        Category category = category("Shopping", CategoryType.EXPENSE);
+
+        Account creditCard = new Account(
+                user,
+                "HDFC Credit Card",
+                AccountType.CREDIT_CARD,
+                "INR",
+                BigDecimal.ZERO,
+                new BigDecimal("10000.00"),
+                bankAccount
+        );
+
+        stubUserAndAccount(creditCard);
+        stubCategory(category);
+
+        // Limit: 10,000; existing debt: 7,000; available credit: 3,000.
+        when(accountBalanceService.calculateBalance(creditCard.getId()))
+                .thenReturn(new BigDecimal("7000.00"));
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                creditCard.getId(),
+                null,
+                category.getId(),
+                TransactionType.EXPENSE,
+                new BigDecimal("4000.00"),
+                "Over-limit purchase",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Expense exceeds available credit");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldAllowCreditCardPaymentFromLinkedBank() {
+        Account creditCard = new Account(
+                user,
+                "HDFC Credit Card",
+                AccountType.CREDIT_CARD,
+                "INR",
+                BigDecimal.ZERO,
+                new BigDecimal("10000.00"),
+                bankAccount
+        );
+
+        stubUserAndAccount(bankAccount);
+
+        when(accountRepository.findById(creditCard.getId()))
+                .thenReturn(Optional.of(creditCard));
+
+        when(accountBalanceService.calculateBalance(bankAccount.getId()))
+                .thenReturn(new BigDecimal("5000.00"));
+
+        when(accountBalanceService.calculateBalance(creditCard.getId()))
+                .thenReturn(new BigDecimal("3000.00"));
+
+        Transaction result = transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                creditCard.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("1000.00"),
+                "Credit card payment",
+                OffsetDateTime.now()
+        );
+
+        assertThat(result.getType()).isEqualTo(TransactionType.TRANSFER);
+        assertThat(result.getAccount()).isSameAs(bankAccount);
+        assertThat(result.getDestinationAccount()).isSameAs(creditCard);
+        assertThat(result.getAmount()).isEqualByComparingTo("1000.00");
+
+        verify(transactionRepository).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectCreditCardPaymentFromUnlinkedBank() {
+        Account creditCard = new Account(
+                user,
+                "HDFC Credit Card",
+                AccountType.CREDIT_CARD,
+                "INR",
+                BigDecimal.ZERO,
+                new BigDecimal("10000.00"),
+                bankAccount
+        );
+
+        stubUserAndAccount(secondBankAccount);
+
+        when(accountRepository.findById(creditCard.getId()))
+                .thenReturn(Optional.of(creditCard));
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                secondBankAccount.getId(),
+                creditCard.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("1000.00"),
+                "Payment from wrong bank",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Credit card payments must come from the linked bank account");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectCreditCardPaymentExceedingAmountOwed() {
+        Account creditCard = new Account(
+                user,
+                "HDFC Credit Card",
+                AccountType.CREDIT_CARD,
+                "INR",
+                BigDecimal.ZERO,
+                new BigDecimal("10000.00"),
+                bankAccount
+        );
+
+        stubUserAndAccount(bankAccount);
+
+        when(accountRepository.findById(creditCard.getId()))
+                .thenReturn(Optional.of(creditCard));
+
+        when(accountBalanceService.calculateBalance(bankAccount.getId()))
+                .thenReturn(new BigDecimal("5000.00"));
+
+        when(accountBalanceService.calculateBalance(creditCard.getId()))
+                .thenReturn(new BigDecimal("3000.00"));
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                creditCard.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("4000.00"),
+                "Excessive card payment",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Credit card payment exceeds amount owed");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectCreditCardPaymentWhenNothingIsOwed() {
+        Account creditCard = new Account(
+                user,
+                "HDFC Credit Card",
+                AccountType.CREDIT_CARD,
+                "INR",
+                BigDecimal.ZERO,
+                new BigDecimal("10000.00"),
+                bankAccount
+        );
+
+        stubUserAndAccount(bankAccount);
+
+        when(accountRepository.findById(creditCard.getId()))
+                .thenReturn(Optional.of(creditCard));
+
+        when(accountBalanceService.calculateBalance(bankAccount.getId()))
+                .thenReturn(new BigDecimal("5000.00"));
+
+        when(accountBalanceService.calculateBalance(creditCard.getId()))
+                .thenReturn(BigDecimal.ZERO);
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                creditCard.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("1000.00"),
+                "Payment with no debt",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Credit card has no outstanding debt to pay");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
     void createTransaction_shouldRejectTransferWithDifferentCurrencies() {
         Account usdAccount = new Account(
                 user,
@@ -315,6 +600,117 @@ class TransactionServiceTest {
         ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Amount cannot have more than 2 decimal places");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectAccountOwnedByAnotherUser() {
+        User otherUser = new User(
+                "other@example.com",
+                "hashed-password",
+                "Other"
+        );
+
+        Account otherAccount = new Account(
+                otherUser,
+                "Other Bank",
+                AccountType.BANK,
+                "INR",
+                BigDecimal.ZERO
+        );
+
+        when(userRepository.findById(user.getId()))
+                .thenReturn(Optional.of(user));
+        when(accountRepository.findById(otherAccount.getId()))
+                .thenReturn(Optional.of(otherAccount));
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                otherAccount.getId(),
+                null,
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("100.00"),
+                "Unauthorized transfer",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Account not found");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectDestinationOwnedByAnotherUser() {
+        User otherUser = new User(
+                "other@example.com",
+                "hashed-password",
+                "Other"
+        );
+
+        Account otherAccount = new Account(
+                otherUser,
+                "Other Bank",
+                AccountType.BANK,
+                "INR",
+                BigDecimal.ZERO
+        );
+
+        stubUserAndAccount(bankAccount);
+
+        when(accountRepository.findById(otherAccount.getId()))
+                .thenReturn(Optional.of(otherAccount));
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                otherAccount.getId(),
+                null,
+                TransactionType.TRANSFER,
+                new BigDecimal("100.00"),
+                "Unauthorized transfer",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Destination account not found");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void createTransaction_shouldRejectCategoryOwnedByAnotherUser() {
+        User otherUser = new User(
+                "other@example.com",
+                "hashed-password",
+                "Other"
+        );
+
+        Category otherCategory = new Category(
+                otherUser,
+                "Other user's Food",
+                CategoryType.EXPENSE,
+                null,
+                false
+        );
+
+        stubUserAndAccount(bankAccount);
+
+        when(categoryRepository.findById(otherCategory.getId()))
+                .thenReturn(Optional.of(otherCategory));
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                otherCategory.getId(),
+                TransactionType.EXPENSE,
+                new BigDecimal("100.00"),
+                "Unauthorized expense",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Category not found");
 
         verify(transactionRepository, never()).save(any(Transaction.class));
     }
@@ -563,6 +959,40 @@ class TransactionServiceTest {
     }
 
     @Test
+    void createTransaction_shouldRejectParentCategory() {
+        Category parentCategory = category(
+                "Food",
+                CategoryType.EXPENSE
+        );
+
+        Category childCategory = category(
+                "Restaurants",
+                CategoryType.EXPENSE
+        );
+
+        // Simulate a parent category that has a child.
+        parentCategory.setChildren(List.of(childCategory));
+
+        stubUserAndAccount(bankAccount);
+        stubCategory(parentCategory);
+
+        assertThatThrownBy(() -> transactionService.createTransaction(
+                user.getId(),
+                bankAccount.getId(),
+                null,
+                parentCategory.getId(),
+                TransactionType.EXPENSE,
+                new BigDecimal("100.00"),
+                "Dinner",
+                OffsetDateTime.now()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Parent categories cannot be used for transactions");
+
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
     void createGoalContribution_shouldCreateTransferIntoGoalAccount() {
         Account goalAccount = new Account(
                 user,
@@ -680,7 +1110,9 @@ class TransactionServiceTest {
         assertThat(result.getStatus()).isEqualTo(TransactionStatus.VOIDED);
 
         verify(transactionRepository).save(transaction);
-        verify(cacheManager).getCache("monthlySummary");
+        verify(monthlySummaryCache).evictIfPresent(
+                user.getId() + ":2026:9"
+        );
     }
 
     @Test

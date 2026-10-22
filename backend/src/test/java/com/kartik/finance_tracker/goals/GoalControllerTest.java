@@ -55,6 +55,7 @@ class GoalControllerTest {
                 BigDecimal.ZERO,
                 LocalDate.of(2027, 12, 31),
                 GoalStatus.ACTIVE,
+                false,
                 null,
                 null
         );

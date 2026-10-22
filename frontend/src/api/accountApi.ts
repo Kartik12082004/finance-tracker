@@ -6,12 +6,16 @@ type CreateAccountRequest = {
   type: AccountType;
   currency: string;
   openingBalance: number;
+  creditLimit: number | null;
+  parentAccountId: string | null;
 };
 
 type UpdateAccountRequest = {
   name: string;
   type: AccountType;
   currency: string;
+  creditLimit: number | null;
+  parentAccountId: string | null;
 };
 
 export async function getAccounts(): Promise<Account[]> {

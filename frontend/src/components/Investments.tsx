@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import type { Account } from "../types/account";
 import {
   buyInvestment,
@@ -38,24 +39,33 @@ const investmentTypes: InvestmentType[] = [
 ];
 
 function formatAmount(amount: number): string {
-  return amount.toFixed(2);
+  return amount.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function formatQuantity(quantity: number | null): string {
-  return quantity === null ? "Not tracked" : quantity.toFixed(8);
+  return quantity === null
+    ? "Not tracked"
+    : quantity.toLocaleString("en-IN", {
+        maximumFractionDigits: 8,
+      });
 }
 
 function formatPrice(price: number | null): string {
-  return price === null ? "Not tracked" : price.toFixed(4);
+  return price === null ? "Not tracked" : formatAmount(price);
 }
 
 function formatDateTime(dateTime: string): string {
-  return new Date(dateTime).toLocaleString("en-GB");
+  return new Date(dateTime).toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 function createDefaultOccurredAt(): string {
   const now = new Date();
-
   const offset = now.getTimezoneOffset();
   const localDate = new Date(now.getTime() - offset * 60 * 1000);
 
@@ -76,15 +86,25 @@ function transactionTypeLabel(type: InvestmentTransactionType): string {
   return type === "BUY" ? "Buy" : "Sell";
 }
 
+function investmentTypeLabel(type: InvestmentType): string {
+  return type
+    .split("_")
+    .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
 export default function Investments({ accounts }: InvestmentsProps) {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   const [name, setName] = useState("");
   const [type, setType] = useState<InvestmentType>("STOCK");
   const [isCreating, setIsCreating] = useState(false);
+  const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
 
   const [editingInvestmentId, setEditingInvestmentId] = useState<string | null>(
     null,
@@ -116,38 +136,45 @@ export default function Investments({ accounts }: InvestmentsProps) {
   >([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-  async function loadPortfolio() {
-    const portfolioResponse = await getPortfolio();
-    setPortfolio(portfolioResponse);
-  }
-
   useEffect(() => {
-    async function loadInvestments() {
-      try {
-        setIsLoading(true);
-        setError(null);
+    let cancelled = false;
 
-        await loadPortfolio();
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to load investments.",
-        );
+    async function loadInvestments() {
+      setIsLoading(true);
+      setLoadError(null);
+
+      try {
+        const portfolioResponse = await getPortfolio();
+
+        if (cancelled) return;
+
+        setPortfolio(portfolioResponse);
+      } catch {
+        if (!cancelled) {
+          setLoadError(
+            "Could not load investments. Check your connection and try again.",
+          );
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     void loadInvestments();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [retryKey]);
 
   async function refreshPortfolio() {
     const updatedPortfolio = await getPortfolio();
     setPortfolio(updatedPortfolio);
   }
 
-  async function handleCreateInvestment(
-    event: React.FormEvent<HTMLFormElement>,
-  ) {
+  async function handleCreateInvestment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!name.trim()) {
@@ -166,6 +193,7 @@ export default function Investments({ accounts }: InvestmentsProps) {
 
       setName("");
       setType("STOCK");
+      setIsCreateFormOpen(false);
 
       await refreshPortfolio();
     } catch (err) {
@@ -193,7 +221,7 @@ export default function Investments({ accounts }: InvestmentsProps) {
   }
 
   async function handleUpdateInvestment(
-    event: React.FormEvent<HTMLFormElement>,
+    event: FormEvent<HTMLFormElement>,
     investmentId: string,
   ) {
     event.preventDefault();
@@ -236,9 +264,7 @@ export default function Investments({ accounts }: InvestmentsProps) {
       `Are you sure you want to permanently delete "${investment.name}"? This cannot be undone.`,
     );
 
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     try {
       setDeletingInvestmentId(investment.id);
@@ -281,7 +307,7 @@ export default function Investments({ accounts }: InvestmentsProps) {
 
   function cancelTransaction() {
     setTransactionInvestmentId(null);
-    setTransactionForm(createEmptyTransactionForm);
+    setTransactionForm(createEmptyTransactionForm());
   }
 
   function updateTransactionField(
@@ -294,14 +320,10 @@ export default function Investments({ accounts }: InvestmentsProps) {
     }));
   }
 
-  async function handleTransactionSubmit(
-    event: React.FormEvent<HTMLFormElement>,
-  ) {
+  async function handleTransactionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (transactionInvestmentId === null) {
-      return;
-    }
+    if (transactionInvestmentId === null) return;
 
     if (!transactionForm.accountId) {
       setError("Account is required.");
@@ -346,36 +368,34 @@ export default function Investments({ accounts }: InvestmentsProps) {
       return;
     }
 
+    const submittedInvestmentId = transactionInvestmentId;
+
     try {
       setIsSubmittingTransaction(true);
       setError(null);
 
       const occurredAt = new Date(transactionForm.occurredAt).toISOString();
 
+      const request = {
+        accountId: transactionForm.accountId,
+        amount: parsedAmount,
+        quantity: parsedQuantity,
+        pricePerUnit: parsedPricePerUnit,
+        occurredAt,
+      };
+
       if (transactionType === "BUY") {
-        await buyInvestment(transactionInvestmentId, {
-          accountId: transactionForm.accountId,
-          amount: parsedAmount,
-          quantity: parsedQuantity,
-          pricePerUnit: parsedPricePerUnit,
-          occurredAt,
-        });
+        await buyInvestment(submittedInvestmentId, request);
       } else {
-        await sellInvestment(transactionInvestmentId, {
-          accountId: transactionForm.accountId,
-          amount: parsedAmount,
-          quantity: parsedQuantity,
-          pricePerUnit: parsedPricePerUnit,
-          occurredAt,
-        });
+        await sellInvestment(submittedInvestmentId, request);
       }
 
       await refreshPortfolio();
       cancelTransaction();
 
-      if (historyInvestmentId === transactionInvestmentId) {
+      if (historyInvestmentId === submittedInvestmentId) {
         const updatedTransactions = await getInvestmentTransactions(
-          transactionInvestmentId,
+          submittedInvestmentId,
         );
         setInvestmentTransactions(updatedTransactions);
       }
@@ -417,393 +437,686 @@ export default function Investments({ accounts }: InvestmentsProps) {
   }
 
   const investments = portfolio?.investments ?? [];
+  const totalInvested = portfolio?.totalInvested ?? 0;
+  const currentValue = portfolio?.currentValue ?? 0;
+  const gainLoss = portfolio?.gainLoss ?? 0;
+  const returnPercentage = portfolio?.returnPercentage ?? 0;
 
   if (isLoading) {
     return (
-      <section>
-        <h2>Investments</h2>
-        <p>Loading investments...</p>
+      <section className="investments-page">
+        <header className="investments-page-header">
+          <div>
+            <p className="investments-eyebrow">Portfolio</p>
+            <h2>Investments</h2>
+            <p className="investments-subtitle">
+              Track your holdings and investment activity.
+            </p>
+          </div>
+        </header>
+
+        <div className="investments-loading" role="status">
+          <span className="investments-loading-indicator" />
+          <p>Loading your portfolio...</p>
+        </div>
       </section>
     );
   }
 
   return (
-    <section>
-      <h2>Investments</h2>
+    <section className="investments-page">
+      <header className="investments-page-header">
+        <div>
+          <p className="investments-eyebrow">Portfolio</p>
+          <h2>Investments</h2>
+          <p className="investments-subtitle">
+            Track your holdings, monitor performance, and manage investment
+            activity in one place.
+          </p>
+        </div>
 
-      {error && <p>{error}</p>}
-
-      <section>
-        <h3>Portfolio Summary</h3>
-
-        <p>Total invested: ₹{formatAmount(portfolio?.totalInvested ?? 0)}</p>
-
-        <p>Current value: ₹{formatAmount(portfolio?.currentValue ?? 0)}</p>
-
-        <p>Gain/Loss: ₹{formatAmount(portfolio?.gainLoss ?? 0)}</p>
-
-        <p>Return: {formatAmount(portfolio?.returnPercentage ?? 0)}%</p>
-      </section>
-
-      <section>
-        <h3>Create Investment</h3>
-
-        <form onSubmit={handleCreateInvestment}>
-          <div>
-            <label htmlFor="investment-name">Name</label>
-
-            <input
-              id="investment-name"
-              type="text"
-              maxLength={255}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="investment-type">Type</label>
-
-            <select
-              id="investment-type"
-              value={type}
-              onChange={(event) =>
-                setType(event.target.value as InvestmentType)
-              }
-            >
-              {investmentTypes.map((investmentType) => (
-                <option key={investmentType} value={investmentType}>
-                  {investmentType}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button type="submit" disabled={isCreating}>
-            {isCreating ? "Creating..." : "Create Investment"}
+        {!isCreateFormOpen && (
+          <button
+            type="button"
+            className="investment-button investment-button-primary"
+            onClick={() => {
+              setError(null);
+              setIsCreateFormOpen(true);
+            }}
+          >
+            + Create Investment
           </button>
-        </form>
+        )}
+      </header>
+
+      {loadError && (
+        <div className="investment-alert" role="alert">
+          <div>
+            <strong>Portfolio unavailable</strong>
+            <p>{loadError}</p>
+          </div>
+          <button
+            type="button"
+            className="investment-button investment-button-secondary"
+            onClick={() => setRetryKey((current) => current + 1)}
+            disabled={isLoading}
+          >
+            {isLoading ? "Retrying..." : "Retry"}
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <div className="investment-alert" role="alert">
+          <p>{error}</p>
+          <button
+            type="button"
+            className="investment-alert-dismiss"
+            onClick={() => setError(null)}
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      <section className="investment-summary-section">
+        <div className="investment-section-heading">
+          <div>
+            <h3>Portfolio Summary</h3>
+            <p>Your investment portfolio at a glance.</p>
+          </div>
+        </div>
+
+        <div className="investment-summary-grid">
+          <article className="investment-summary-card">
+            <div className="investment-summary-card-top">
+              <span className="investment-summary-icon">₹</span>
+              <span className="investment-summary-label">Total Invested</span>
+            </div>
+            <p className="investment-summary-value">
+              ₹{formatAmount(totalInvested)}
+            </p>
+            <p className="investment-summary-caption">
+              Capital recorded in your portfolio
+            </p>
+          </article>
+
+          <article className="investment-summary-card">
+            <div className="investment-summary-card-top">
+              <span className="investment-summary-icon">↗</span>
+              <span className="investment-summary-label">Current Value</span>
+            </div>
+            <p className="investment-summary-value">
+              ₹{formatAmount(currentValue)}
+            </p>
+            <p className="investment-summary-caption">
+              Current portfolio valuation
+            </p>
+          </article>
+
+          <article
+            className={`investment-summary-card ${
+              gainLoss > 0
+                ? "investment-summary-positive"
+                : gainLoss < 0
+                  ? "investment-summary-negative"
+                  : ""
+            }`}
+          >
+            <div className="investment-summary-card-top">
+              <span className="investment-summary-icon">
+                {gainLoss > 0 ? "↗" : gainLoss < 0 ? "↘" : "—"}
+              </span>
+              <span className="investment-summary-label">Gain / Loss</span>
+            </div>
+            <p className="investment-summary-value">
+              {gainLoss < 0 ? "−" : ""}₹{formatAmount(Math.abs(gainLoss))}
+            </p>
+            <p className="investment-summary-caption">
+              Difference from total invested
+            </p>
+          </article>
+
+          <article
+            className={`investment-summary-card ${
+              returnPercentage > 0
+                ? "investment-summary-positive"
+                : returnPercentage < 0
+                  ? "investment-summary-negative"
+                  : ""
+            }`}
+          >
+            <div className="investment-summary-card-top">
+              <span className="investment-summary-icon">%</span>
+              <span className="investment-summary-label">Portfolio Return</span>
+            </div>
+            <p className="investment-summary-value">
+              {returnPercentage > 0 ? "+" : ""}
+              {formatAmount(returnPercentage)}%
+            </p>
+            <p className="investment-summary-caption">
+              Reported portfolio return
+            </p>
+          </article>
+        </div>
       </section>
 
-      <section>
-        <h3>Your Investments</h3>
+      {isCreateFormOpen && (
+        <section className="investment-panel investment-create-panel">
+          <div className="investment-section-heading">
+            <div>
+              <h3>Create Investment</h3>
+              <p>
+                Add an investment to your portfolio before recording
+                transactions.
+              </p>
+            </div>
+          </div>
+
+          <form className="investment-form" onSubmit={handleCreateInvestment}>
+            <div className="investment-form-grid">
+              <div className="investment-field">
+                <label htmlFor="investment-name">Investment name</label>
+                <input
+                  id="investment-name"
+                  type="text"
+                  maxLength={255}
+                  placeholder="e.g. Nifty 50 Index Fund"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="investment-field">
+                <label htmlFor="investment-type">Investment type</label>
+                <select
+                  id="investment-type"
+                  value={type}
+                  onChange={(event) =>
+                    setType(event.target.value as InvestmentType)
+                  }
+                >
+                  {investmentTypes.map((investmentType) => (
+                    <option key={investmentType} value={investmentType}>
+                      {investmentTypeLabel(investmentType)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="investment-form-actions">
+              <button
+                type="submit"
+                className="investment-button investment-button-primary"
+                disabled={isCreating}
+              >
+                {isCreating ? "Creating..." : "Create Investment"}
+              </button>
+              <button
+                type="button"
+                className="investment-button investment-button-secondary"
+                onClick={() => {
+                  setIsCreateFormOpen(false);
+                  setName("");
+                  setType("STOCK");
+                  setError(null);
+                }}
+                disabled={isCreating}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      <section className="investment-holdings-section">
+        <div className="investment-section-heading">
+          <div>
+            <h3>Your Investments</h3>
+            <p>Review individual holdings and manage their transactions.</p>
+          </div>
+          <span className="investment-count">{investments.length}</span>
+        </div>
 
         {investments.length === 0 ? (
-          <p>No investments found.</p>
+          <div className="investment-empty-state">
+            <span className="investment-empty-icon">↗</span>
+            <h4>Your portfolio starts here</h4>
+            <p>
+              Add your first investment to start recording holdings and tracking
+              portfolio activity.
+            </p>
+            {!isCreateFormOpen && (
+              <button
+                type="button"
+                className="investment-button investment-button-primary"
+                onClick={() => setIsCreateFormOpen(true)}
+              >
+                Create Your First Investment
+              </button>
+            )}
+          </div>
         ) : (
-          <ul>
-            {investments.map((investment) => (
-              <li key={investment.id}>
-                <article>
-                  <h4>{investment.name}</h4>
+          <div className="investment-holdings-grid">
+            {investments.map((investment) => {
+              const isEditing = editingInvestmentId === investment.id;
+              const isTransacting = transactionInvestmentId === investment.id;
+              const isShowingHistory = historyInvestmentId === investment.id;
+              const isDeleting = deletingInvestmentId === investment.id;
 
-                  {editingInvestmentId === investment.id ? (
+              return (
+                <article
+                  key={investment.id}
+                  className="investment-holding-card"
+                >
+                  <div className="investment-holding-header">
+                    <div className="investment-holding-title">
+                      <span className="investment-type-icon">
+                        {investment.type === "GOLD"
+                          ? "Au"
+                          : investment.type === "MUTUAL_FUND"
+                            ? "MF"
+                            : investment.type === "ETF"
+                              ? "ETF"
+                              : investment.type === "STOCK"
+                                ? "ST"
+                                : "OT"}
+                      </span>
+                      <div>
+                        <h4>{investment.name}</h4>
+                        <span className="investment-type-badge">
+                          {investmentTypeLabel(investment.type)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="investment-holding-value">
+                      <span>Current value</span>
+                      <strong>₹{formatAmount(investment.currentValue)}</strong>
+                    </div>
+                  </div>
+
+                  {isEditing ? (
                     <form
+                      className="investment-inline-form"
                       onSubmit={(event) =>
                         handleUpdateInvestment(event, investment.id)
                       }
                     >
-                      <div>
-                        <label
-                          htmlFor={`edit-investment-name-${investment.id}`}
-                        >
-                          Name
-                        </label>
-
-                        <input
-                          id={`edit-investment-name-${investment.id}`}
-                          type="text"
-                          maxLength={255}
-                          value={editName}
-                          onChange={(event) => setEditName(event.target.value)}
-                        />
-                      </div>
-
-                      <div>
-                        <label
-                          htmlFor={`edit-investment-type-${investment.id}`}
-                        >
-                          Type
-                        </label>
-
-                        <select
-                          id={`edit-investment-type-${investment.id}`}
-                          value={editType}
-                          onChange={(event) =>
-                            setEditType(event.target.value as InvestmentType)
-                          }
-                        >
-                          {investmentTypes.map((investmentType) => (
-                            <option key={investmentType} value={investmentType}>
-                              {investmentType}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label
-                          htmlFor={`edit-investment-value-${investment.id}`}
-                        >
-                          Current value
-                        </label>
-
-                        <input
-                          id={`edit-investment-value-${investment.id}`}
-                          type="number"
-                          min="0"
-                          step="0.0001"
-                          value={editCurrentValue}
-                          onChange={(event) =>
-                            setEditCurrentValue(event.target.value)
-                          }
-                        />
-                      </div>
-
-                      <button type="submit" disabled={isUpdating}>
-                        {isUpdating ? "Saving..." : "Save Changes"}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={cancelEditingInvestment}
-                        disabled={isUpdating}
-                      >
-                        Cancel
-                      </button>
-                    </form>
-                  ) : (
-                    <>
-                      <p>Type: {investment.type}</p>
-
-                      <p>Quantity: {formatQuantity(investment.quantity)}</p>
-
-                      <p>
-                        Average purchase price: ₹
-                        {formatPrice(investment.averagePurchasePrice)}
-                      </p>
-
-                      <p>
-                        Current value: ₹{formatAmount(investment.currentValue)}
-                      </p>
-
-                      <button
-                        type="button"
-                        onClick={() => startTransaction(investment.id, "BUY")}
-                      >
-                        Buy
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => startTransaction(investment.id, "SELL")}
-                      >
-                        Sell
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => startEditingInvestment(investment)}
-                      >
-                        Edit
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteInvestment(investment)}
-                        disabled={deletingInvestmentId === investment.id}
-                      >
-                        {deletingInvestmentId === investment.id
-                          ? "Deleting..."
-                          : "Delete"}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => void handleViewHistory(investment.id)}
-                      >
-                        {historyInvestmentId === investment.id
-                          ? "Hide Transactions"
-                          : "View Transactions"}
-                      </button>
-                    </>
-                  )}
-
-                  {transactionInvestmentId === investment.id && (
-                    <section>
-                      <h5>
-                        {transactionType === "BUY"
-                          ? "Buy Investment"
-                          : "Sell Investment"}
-                      </h5>
-
-                      <form onSubmit={handleTransactionSubmit}>
-                        <div>
+                      <div className="investment-form-grid">
+                        <div className="investment-field">
                           <label
-                            htmlFor={`transaction-account-${investment.id}`}
+                            htmlFor={`edit-investment-name-${investment.id}`}
                           >
-                            Account
+                            Name
                           </label>
-
-                          <select
-                            id={`transaction-account-${investment.id}`}
-                            value={transactionForm.accountId}
+                          <input
+                            id={`edit-investment-name-${investment.id}`}
+                            type="text"
+                            maxLength={255}
+                            value={editName}
                             onChange={(event) =>
-                              updateTransactionField(
-                                "accountId",
-                                event.target.value,
-                              )
+                              setEditName(event.target.value)
+                            }
+                            required
+                          />
+                        </div>
+
+                        <div className="investment-field">
+                          <label
+                            htmlFor={`edit-investment-type-${investment.id}`}
+                          >
+                            Type
+                          </label>
+                          <select
+                            id={`edit-investment-type-${investment.id}`}
+                            value={editType}
+                            onChange={(event) =>
+                              setEditType(event.target.value as InvestmentType)
                             }
                           >
-                            <option value="">Select account</option>
-
-                            {accounts.map((account) => (
-                              <option key={account.id} value={account.id}>
-                                {account.name}
+                            {investmentTypes.map((investmentType) => (
+                              <option
+                                key={investmentType}
+                                value={investmentType}
+                              >
+                                {investmentTypeLabel(investmentType)}
                               </option>
                             ))}
                           </select>
                         </div>
 
-                        <div>
+                        <div className="investment-field">
                           <label
-                            htmlFor={`transaction-amount-${investment.id}`}
+                            htmlFor={`edit-investment-value-${investment.id}`}
                           >
-                            Amount
+                            Current value (₹)
                           </label>
-
                           <input
-                            id={`transaction-amount-${investment.id}`}
+                            id={`edit-investment-value-${investment.id}`}
                             type="number"
-                            min="0.01"
-                            step="0.01"
-                            value={transactionForm.amount}
-                            onChange={(event) =>
-                              updateTransactionField(
-                                "amount",
-                                event.target.value,
-                              )
-                            }
-                          />
-                        </div>
-
-                        <div>
-                          <label
-                            htmlFor={`transaction-quantity-${investment.id}`}
-                          >
-                            Quantity (optional)
-                          </label>
-
-                          <input
-                            id={`transaction-quantity-${investment.id}`}
-                            type="number"
-                            min="0.00000001"
-                            step="0.00000001"
-                            value={transactionForm.quantity}
-                            onChange={(event) =>
-                              updateTransactionField(
-                                "quantity",
-                                event.target.value,
-                              )
-                            }
-                          />
-                        </div>
-
-                        <div>
-                          <label htmlFor={`transaction-price-${investment.id}`}>
-                            Price per unit (optional)
-                          </label>
-
-                          <input
-                            id={`transaction-price-${investment.id}`}
-                            type="number"
-                            min="0.0001"
+                            min="0"
                             step="0.0001"
-                            value={transactionForm.pricePerUnit}
+                            value={editCurrentValue}
                             onChange={(event) =>
-                              updateTransactionField(
-                                "pricePerUnit",
-                                event.target.value,
-                              )
+                              setEditCurrentValue(event.target.value)
                             }
+                            required
                           />
                         </div>
+                      </div>
 
-                        <div>
-                          <label
-                            htmlFor={`transaction-occurred-at-${investment.id}`}
-                          >
-                            Occurred at
-                          </label>
-
-                          <input
-                            id={`transaction-occurred-at-${investment.id}`}
-                            type="datetime-local"
-                            value={transactionForm.occurredAt}
-                            onChange={(event) =>
-                              updateTransactionField(
-                                "occurredAt",
-                                event.target.value,
-                              )
-                            }
-                          />
-                        </div>
-
+                      <div className="investment-form-actions">
                         <button
                           type="submit"
-                          disabled={isSubmittingTransaction}
+                          className="investment-button investment-button-primary"
+                          disabled={isUpdating}
                         >
-                          {isSubmittingTransaction
-                            ? "Submitting..."
-                            : transactionType === "BUY"
-                              ? "Submit Buy"
-                              : "Submit Sell"}
+                          {isUpdating ? "Saving..." : "Save Changes"}
                         </button>
-
                         <button
                           type="button"
-                          onClick={cancelTransaction}
-                          disabled={isSubmittingTransaction}
+                          className="investment-button investment-button-secondary"
+                          onClick={cancelEditingInvestment}
+                          disabled={isUpdating}
                         >
                           Cancel
                         </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <div className="investment-holding-metrics">
+                        <div>
+                          <span>Quantity</span>
+                          <strong>{formatQuantity(investment.quantity)}</strong>
+                        </div>
+                        <div>
+                          <span>Average purchase price</span>
+                          <strong>
+                            {investment.averagePurchasePrice === null
+                              ? "Not tracked"
+                              : `₹${formatPrice(investment.averagePurchasePrice)}`}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div className="investment-card-actions">
+                        <button
+                          type="button"
+                          className="investment-button investment-button-primary"
+                          onClick={() => startTransaction(investment.id, "BUY")}
+                          disabled={isDeleting || isSubmittingTransaction}
+                        >
+                          Buy
+                        </button>
+                        <button
+                          type="button"
+                          className="investment-button investment-button-secondary"
+                          onClick={() =>
+                            startTransaction(investment.id, "SELL")
+                          }
+                          disabled={isDeleting || isSubmittingTransaction}
+                        >
+                          Sell
+                        </button>
+                        <button
+                          type="button"
+                          className="investment-button investment-button-secondary"
+                          onClick={() => startEditingInvestment(investment)}
+                          disabled={isDeleting}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="investment-button investment-button-secondary"
+                          onClick={() => void handleViewHistory(investment.id)}
+                          disabled={isLoadingHistory}
+                        >
+                          {isShowingHistory ? "Hide History" : "View History"}
+                        </button>
+                        <button
+                          type="button"
+                          className="investment-button investment-button-danger"
+                          onClick={() =>
+                            void handleDeleteInvestment(investment)
+                          }
+                          disabled={isDeleting}
+                        >
+                          {isDeleting ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {isTransacting && (
+                    <section className="investment-expanded-panel">
+                      <div className="investment-expanded-heading">
+                        <div>
+                          <h5>
+                            {transactionType === "BUY"
+                              ? "Buy Investment"
+                              : "Sell Investment"}
+                          </h5>
+                          <p>Record the transaction details below.</p>
+                        </div>
+                      </div>
+
+                      <form
+                        className="investment-form"
+                        onSubmit={handleTransactionSubmit}
+                      >
+                        <div className="investment-form-grid">
+                          <div className="investment-field">
+                            <label
+                              htmlFor={`transaction-account-${investment.id}`}
+                            >
+                              Account
+                            </label>
+                            <select
+                              id={`transaction-account-${investment.id}`}
+                              value={transactionForm.accountId}
+                              onChange={(event) =>
+                                updateTransactionField(
+                                  "accountId",
+                                  event.target.value,
+                                )
+                              }
+                              required
+                            >
+                              <option value="">Select account</option>
+                              {accounts.map((account) => (
+                                <option key={account.id} value={account.id}>
+                                  {account.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="investment-field">
+                            <label
+                              htmlFor={`transaction-amount-${investment.id}`}
+                            >
+                              Amount (₹)
+                            </label>
+                            <input
+                              id={`transaction-amount-${investment.id}`}
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={transactionForm.amount}
+                              onChange={(event) =>
+                                updateTransactionField(
+                                  "amount",
+                                  event.target.value,
+                                )
+                              }
+                              required
+                            />
+                          </div>
+
+                          <div className="investment-field">
+                            <label
+                              htmlFor={`transaction-quantity-${investment.id}`}
+                            >
+                              Quantity (optional)
+                            </label>
+                            <input
+                              id={`transaction-quantity-${investment.id}`}
+                              type="number"
+                              min="0.00000001"
+                              step="0.00000001"
+                              value={transactionForm.quantity}
+                              onChange={(event) =>
+                                updateTransactionField(
+                                  "quantity",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </div>
+
+                          <div className="investment-field">
+                            <label
+                              htmlFor={`transaction-price-${investment.id}`}
+                            >
+                              Price per unit (₹, optional)
+                            </label>
+                            <input
+                              id={`transaction-price-${investment.id}`}
+                              type="number"
+                              min="0.0001"
+                              step="0.0001"
+                              value={transactionForm.pricePerUnit}
+                              onChange={(event) =>
+                                updateTransactionField(
+                                  "pricePerUnit",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </div>
+
+                          <div className="investment-field investment-field-full">
+                            <label
+                              htmlFor={`transaction-occurred-at-${investment.id}`}
+                            >
+                              Transaction date and time
+                            </label>
+                            <input
+                              id={`transaction-occurred-at-${investment.id}`}
+                              type="datetime-local"
+                              value={transactionForm.occurredAt}
+                              onChange={(event) =>
+                                updateTransactionField(
+                                  "occurredAt",
+                                  event.target.value,
+                                )
+                              }
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div className="investment-form-actions">
+                          <button
+                            type="submit"
+                            className="investment-button investment-button-primary"
+                            disabled={isSubmittingTransaction}
+                          >
+                            {isSubmittingTransaction
+                              ? "Submitting..."
+                              : transactionType === "BUY"
+                                ? "Submit Buy"
+                                : "Submit Sell"}
+                          </button>
+                          <button
+                            type="button"
+                            className="investment-button investment-button-secondary"
+                            onClick={cancelTransaction}
+                            disabled={isSubmittingTransaction}
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </form>
                     </section>
                   )}
 
-                  {historyInvestmentId === investment.id && (
-                    <section>
-                      <h5>Transaction History</h5>
+                  {isShowingHistory && (
+                    <section className="investment-expanded-panel">
+                      <div className="investment-expanded-heading">
+                        <div>
+                          <h5>Transaction History</h5>
+                          <p>Recorded buys and sells for this investment.</p>
+                        </div>
+                      </div>
 
                       {isLoadingHistory ? (
-                        <p>Loading transactions...</p>
+                        <p className="investment-inline-status">
+                          Loading transactions...
+                        </p>
                       ) : investmentTransactions.length === 0 ? (
-                        <p>No transactions found.</p>
+                        <p className="investment-inline-status">
+                          No transactions found.
+                        </p>
                       ) : (
-                        <ul>
+                        <ul className="investment-history-list">
                           {investmentTransactions.map((transaction) => (
-                            <li key={transaction.id}>
-                              <p>
-                                Type: {transactionTypeLabel(transaction.type)}
-                              </p>
+                            <li
+                              key={transaction.id}
+                              className="investment-history-item"
+                            >
+                              <div className="investment-history-header">
+                                <span
+                                  className={`investment-history-type ${
+                                    transaction.type === "BUY"
+                                      ? "investment-history-buy"
+                                      : "investment-history-sell"
+                                  }`}
+                                >
+                                  {transactionTypeLabel(transaction.type)}
+                                </span>
+                                <strong>
+                                  ₹{formatAmount(transaction.amount)}
+                                </strong>
+                              </div>
 
-                              <p>Amount: ₹{formatAmount(transaction.amount)}</p>
-
-                              <p>
-                                Quantity: {formatQuantity(transaction.quantity)}
-                              </p>
-
-                              <p>
-                                Price per unit: ₹
-                                {formatPrice(transaction.pricePerUnit)}
-                              </p>
-
-                              <p>Account: {transaction.accountId}</p>
-
-                              <p>
-                                Occurred at:{" "}
-                                {formatDateTime(transaction.occurredAt)}
-                              </p>
+                              <div className="investment-history-details">
+                                <p>
+                                  <span>Quantity</span>
+                                  <strong>
+                                    {formatQuantity(transaction.quantity)}
+                                  </strong>
+                                </p>
+                                <p>
+                                  <span>Price per unit</span>
+                                  <strong>
+                                    {transaction.pricePerUnit === null
+                                      ? "Not tracked"
+                                      : `₹${formatPrice(transaction.pricePerUnit)}`}
+                                  </strong>
+                                </p>
+                                <p>
+                                  <span>Account</span>
+                                  <strong>
+                                    {accounts.find(
+                                      (account) =>
+                                        account.id === transaction.accountId,
+                                    )?.name ?? transaction.accountId}
+                                  </strong>
+                                </p>
+                                <p>
+                                  <span>Date</span>
+                                  <strong>
+                                    {formatDateTime(transaction.occurredAt)}
+                                  </strong>
+                                </p>
+                              </div>
                             </li>
                           ))}
                         </ul>
@@ -811,9 +1124,9 @@ export default function Investments({ accounts }: InvestmentsProps) {
                     </section>
                   )}
                 </article>
-              </li>
-            ))}
-          </ul>
+              );
+            })}
+          </div>
         )}
       </section>
     </section>

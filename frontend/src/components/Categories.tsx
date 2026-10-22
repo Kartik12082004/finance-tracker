@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Category, CategoryType } from "../types/category";
+import { Pencil, Trash2 } from "lucide-react";
 import {
   createCategory,
   deleteCategory,
@@ -17,6 +18,15 @@ type CategoryFormState = {
   parentId: string;
 };
 
+type CategoryRowProps = {
+  category: Category;
+  categories: Category[];
+  onEdit: (category: Category) => void;
+  onDelete: (category: Category) => void;
+  collapsedCategories: Set<string>;
+  onToggleCollapse: (categoryId: string) => void;
+};
+
 function getChildren(categories: Category[], parentId: string | null) {
   return categories.filter((category) => category.parentId === parentId);
 }
@@ -26,19 +36,50 @@ function CategoryRow({
   categories,
   onEdit,
   onDelete,
-}: {
-  category: Category;
-  categories: Category[];
-  onEdit: (category: Category) => void;
-  onDelete: (category: Category) => void;
-}) {
+  collapsedCategories,
+  onToggleCollapse,
+}: CategoryRowProps) {
   const children = getChildren(categories, category.id);
+  const hasChildren = children.length > 0;
+  const isCollapsed = collapsedCategories.has(category.id);
 
   return (
     <div className="category-tree-node">
       <div className="category-row">
         <div className="category-row-main">
+          {hasChildren ? (
+            <button
+              type="button"
+              className="category-collapse-button"
+              onClick={() => onToggleCollapse(category.id)}
+              aria-expanded={!isCollapsed}
+              aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${category.name}`}
+              title={isCollapsed ? "Show subcategories" : "Hide subcategories"}
+            >
+              <span
+                className={`category-chevron ${
+                  isCollapsed ? "is-collapsed" : ""
+                }`}
+                aria-hidden="true"
+              >
+                ›
+              </span>
+            </button>
+          ) : (
+            <span className="category-collapse-spacer" aria-hidden="true" />
+          )}
+
           <div className="category-name">{category.name}</div>
+
+          {hasChildren && (
+            <span
+              className="category-child-count"
+              title={`${children.length} subcategories`}
+              aria-label={`${children.length} subcategories`}
+            >
+              {children.length}
+            </span>
+          )}
 
           {category.isDefault && (
             <span className="category-badge">Default</span>
@@ -49,24 +90,28 @@ function CategoryRow({
           <div className="category-actions">
             <button
               type="button"
-              className="secondary-button"
+              className="category-icon-button category-edit-button"
               onClick={() => onEdit(category)}
+              aria-label={`Edit ${category.name}`}
+              title="Edit category"
             >
-              Edit
+              <Pencil size={16} />
             </button>
 
             <button
               type="button"
-              className="danger-button"
+              className="category-icon-button category-delete-button"
               onClick={() => onDelete(category)}
+              aria-label={`Delete ${category.name}`}
+              title="Delete category"
             >
-              Delete
+              <Trash2 size={16} />
             </button>
           </div>
         )}
       </div>
 
-      {children.length > 0 && (
+      {hasChildren && !isCollapsed && (
         <div className="category-children">
           {children.map((child) => (
             <CategoryRow
@@ -75,6 +120,8 @@ function CategoryRow({
               categories={categories}
               onEdit={onEdit}
               onDelete={onDelete}
+              collapsedCategories={collapsedCategories}
+              onToggleCollapse={onToggleCollapse}
             />
           ))}
         </div>
@@ -88,8 +135,13 @@ export default function Categories({
   onCategoriesChanged,
 }: CategoriesProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
-
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  const formSectionRef = useRef<HTMLElement | null>(null);
 
   const [form, setForm] = useState<CategoryFormState>({
     name: "",
@@ -99,6 +151,15 @@ export default function Categories({
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (showCreateForm || editingCategory) {
+      formSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+  }, [showCreateForm, editingCategory]);
 
   const expenseCategories = useMemo(
     () => categories.filter((category) => category.type === "EXPENSE"),
@@ -118,6 +179,20 @@ export default function Categories({
       ),
     [categories, form.type, editingCategory],
   );
+
+  function toggleCategoryCollapse(categoryId: string) {
+    setCollapsedCategories((current) => {
+      const next = new Set(current);
+
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+      } else {
+        next.add(categoryId);
+      }
+
+      return next;
+    });
+  }
 
   function resetForm() {
     setForm({
@@ -160,6 +235,8 @@ export default function Categories({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (saving) return;
+
     setError(null);
     setSaving(true);
 
@@ -200,9 +277,7 @@ export default function Categories({
       `Delete "${category.name}"? This cannot be undone.`,
     );
 
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     setError(null);
 
@@ -250,6 +325,8 @@ export default function Categories({
                 categories={sectionCategories}
                 onEdit={handleStartEdit}
                 onDelete={handleDelete}
+                collapsedCategories={collapsedCategories}
+                onToggleCollapse={toggleCategoryCollapse}
               />
             ))}
           </div>
@@ -260,7 +337,7 @@ export default function Categories({
 
   return (
     <div className="categories-page">
-      <section className="page-section">
+      <section className="page-section" ref={formSectionRef}>
         <div className="section-heading">
           <div>
             <p className="eyebrow">Organize your money</p>
@@ -304,6 +381,7 @@ export default function Categories({
                 type="button"
                 className="secondary-button"
                 onClick={resetForm}
+                disabled={saving}
               >
                 Cancel
               </button>

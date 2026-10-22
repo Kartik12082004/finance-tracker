@@ -10,7 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
 
-    List<Transaction> findAllByUser_Id(UUID userId);
+    List<Transaction> findAllByUser_IdOrderByOccurredAtDesc(UUID userId);
 
     List<Transaction> findAllByAccount_IdOrDestinationAccount_Id(
             UUID accountId,

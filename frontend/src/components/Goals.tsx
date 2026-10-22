@@ -1,11 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
+  archiveGoal,
   contributeToGoal,
   createGoal,
   deleteGoal,
+  getArchivedGoals,
   getGoals,
   pauseGoal,
   resumeGoal,
+  unarchiveGoal,
 } from "../api/goalApi";
 import { getAccounts } from "../api/accountApi";
 import type { Account } from "../types/account";
@@ -42,9 +45,14 @@ function getEligibleSourceAccounts(accounts: Account[]): Account[] {
 
 export default function Goals({ onFinanceDataChanged }: GoalsProps) {
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [archivedGoals, setArchivedGoals] = useState<Goal[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [showArchivedGoals, setShowArchivedGoals] = useState(false);
 
   const [name, setName] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
@@ -60,12 +68,11 @@ export default function Goals({ onFinanceDataChanged }: GoalsProps) {
   const [activeAction, setActiveAction] = useState<string | null>(null);
 
   async function loadGoalsAndAccounts() {
-    const [goalResponse, accountResponse] = await Promise.all([
-      getGoals(),
-      getAccounts(),
-    ]);
+    const [goalResponse, accountResponse, archivedGoalResponse] =
+      await Promise.all([getGoals(), getAccounts(), getArchivedGoals()]);
 
     setGoals(goalResponse.filter((goal) => goal.status !== "CANCELLED"));
+    setArchivedGoals(archivedGoalResponse);
     setAccounts(accountResponse);
 
     const eligibleAccounts = getEligibleSourceAccounts(accountResponse);
@@ -96,16 +103,18 @@ export default function Goals({ onFinanceDataChanged }: GoalsProps) {
 
     async function loadInitialData() {
       try {
-        const [goalResponse, accountResponse] = await Promise.all([
-          getGoals(),
-          getAccounts(),
-        ]);
+        setIsLoading(true);
+        setLoadError(null);
+
+        const [goalResponse, accountResponse, archivedGoalResponse] =
+          await Promise.all([getGoals(), getAccounts(), getArchivedGoals()]);
 
         if (cancelled) {
           return;
         }
 
         setGoals(goalResponse.filter((goal) => goal.status !== "CANCELLED"));
+        setArchivedGoals(archivedGoalResponse);
         setAccounts(accountResponse);
 
         const eligibleAccounts = getEligibleSourceAccounts(accountResponse);
@@ -129,12 +138,10 @@ export default function Goals({ onFinanceDataChanged }: GoalsProps) {
 
           return next;
         });
-      } catch (err) {
+      } catch {
         if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Failed to load goals and accounts.",
+          setLoadError(
+            "Could not load goals and accounts. Check your connection and try again.",
           );
         }
       } finally {
@@ -149,7 +156,7 @@ export default function Goals({ onFinanceDataChanged }: GoalsProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryKey]);
 
   async function refreshAfterSuccessfulChange(message: string) {
     try {
@@ -203,6 +210,7 @@ export default function Goals({ onFinanceDataChanged }: GoalsProps) {
         targetDate,
       });
 
+      setIsCreateModalOpen(false);
       setName("");
       setTargetAmount("");
       setTargetDate("");
@@ -285,6 +293,44 @@ export default function Goals({ onFinanceDataChanged }: GoalsProps) {
     }
   }
 
+  async function handleArchive(goalId: string) {
+    const confirmed = window.confirm(
+      "Archive this completed goal? It will disappear from Goals and Accounts, but its financial history will be preserved.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setActiveAction(`archive-${goalId}`);
+      setError(null);
+
+      await archiveGoal(goalId);
+      await refreshAfterSuccessfulChange("Goal archived successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to archive goal.");
+    } finally {
+      setActiveAction(null);
+    }
+  }
+
+  async function handleUnarchive(goalId: string) {
+    try {
+      setActiveAction(`unarchive-${goalId}`);
+      setError(null);
+
+      await unarchiveGoal(goalId);
+      await refreshAfterSuccessfulChange("Goal unarchived successfully.");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to unarchive goal.",
+      );
+    } finally {
+      setActiveAction(null);
+    }
+  }
+
   async function handleDelete(goalId: string) {
     const confirmed = window.confirm(
       "Are you sure you want to permanently delete this goal? This cannot be undone.",
@@ -324,71 +370,99 @@ export default function Goals({ onFinanceDataChanged }: GoalsProps) {
     return (
       <section>
         <h2>Goals</h2>
-        <p>Loading goals...</p>
+        <p role="status">Loading goals...</p>
       </section>
     );
   }
 
   const sourceAccounts = getEligibleSourceAccounts(accounts);
 
+  function closeCreateModal() {
+    if (isCreating) return;
+
+    setIsCreateModalOpen(false);
+    setName("");
+    setTargetAmount("");
+    setTargetDate("");
+  }
+
   return (
-    <section>
-      <h2>Goals</h2>
+    <section className="goals-page">
+      <header className="goals-page-header">
+        <div className="goals-page-heading">
+          <span className="goals-eyebrow">PLAN WITH PURPOSE</span>
+          <h2>Goals</h2>
+          <p>Turn your savings plans into milestones you can track.</p>
+        </div>
 
-      {error && <p role="alert">{error}</p>}
+        <button
+          type="button"
+          className="goals-primary-button"
+          onClick={() => {
+            setError(null);
+            setIsCreateModalOpen(true);
+          }}
+        >
+          <span aria-hidden="true">＋</span> Add Goal
+        </button>
+      </header>
 
-      <section>
-        <h3>Create Goal</h3>
-
-        <form onSubmit={handleCreateGoal}>
-          <div>
-            <label htmlFor="goal-name">Name</label>
-            <input
-              id="goal-name"
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <label htmlFor="goal-target-amount">Target amount</label>
-            <input
-              id="goal-target-amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={targetAmount}
-              onChange={(event) => setTargetAmount(event.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <label htmlFor="goal-target-date">Target date</label>
-            <input
-              id="goal-target-date"
-              type="date"
-              value={targetDate}
-              onChange={(event) => setTargetDate(event.target.value)}
-              required
-            />
-          </div>
-
-          <button type="submit" disabled={isCreating}>
-            {isCreating ? "Creating..." : "Create Goal"}
+      {loadError && (
+        <div className="goals-alert" role="alert">
+          <p>{loadError}</p>
+          <button
+            type="button"
+            onClick={() => setRetryKey((current) => current + 1)}
+            disabled={isLoading}
+          >
+            {isLoading ? "Retrying..." : "Retry loading goals"}
           </button>
-        </form>
-      </section>
+        </div>
+      )}
 
-      <section>
-        <h3>Your Goals</h3>
+      {error && (
+        <div className="goals-alert" role="alert">
+          <p>{error}</p>
+          <button type="button" onClick={() => setError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      <section className="goals-content">
+        <div className="goals-section-heading">
+          <div>
+            <h3>Your goals</h3>
+            <p>Track your progress and keep moving forward.</p>
+          </div>
+          <span className="goals-count">
+            {goals.length} {goals.length === 1 ? "goal" : "goals"}
+          </span>
+        </div>
 
         {goals.length === 0 ? (
-          <p>No goals found.</p>
+          <div className="goals-empty-state">
+            <div className="goals-empty-icon" aria-hidden="true">
+              ◎
+            </div>
+            <h3>No goals yet</h3>
+            <p>
+              Start with something you want to save for. You can track
+              contributions and progress here.
+            </p>
+            <button
+              type="button"
+              className="goals-primary-button"
+              onClick={() => {
+                setError(null);
+                setIsCreateModalOpen(true);
+              }}
+            >
+              ＋ Create your first goal
+            </button>
+          </div>
         ) : (
-          <ul>
+          <div className="goals-grid">
             {goals.map((goal) => {
               const progress = getProgress(goal);
               const remaining = Math.max(
@@ -402,136 +476,363 @@ export default function Goals({ onFinanceDataChanged }: GoalsProps) {
               const actionIsRunning = activeAction !== null;
 
               return (
-                <li key={goal.id}>
-                  <article>
-                    <h4>{goal.name}</h4>
-                    <p>Status: {goal.status}</p>
-
-                    <p>
-                      ₹{formatAmount(goal.currentAmount)} / ₹
-                      {formatAmount(goal.targetAmount)}
-                    </p>
-
-                    <p>Progress: {progress.toFixed(1)}%</p>
-                    <progress value={progress} max={100} />
-                    <p>Remaining: ₹{formatAmount(remaining)}</p>
-                    <p>Target date: {formatDate(goal.targetDate)}</p>
-
-                    {isActive && (
-                      <div>
-                        <div>
-                          <label htmlFor={`source-account-${goal.id}`}>
-                            From account
-                          </label>
-                          <select
-                            id={`source-account-${goal.id}`}
-                            value={selectedSourceAccounts[goal.id] ?? ""}
-                            onChange={(event) =>
-                              setSelectedSourceAccounts((current) => ({
-                                ...current,
-                                [goal.id]: event.target.value,
-                              }))
-                            }
-                            disabled={
-                              sourceAccounts.length === 0 || actionIsRunning
-                            }
-                          >
-                            <option value="">Select an account</option>
-                            {sourceAccounts.map((account) => (
-                              <option key={account.id} value={account.id}>
-                                {account.name} ({account.type} ·{" "}
-                                {account.currency})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {sourceAccounts.length === 0 && (
-                          <p>
-                            Create an eligible INR bank, cash, or investment
-                            account before contributing to this goal.
-                          </p>
-                        )}
-
-                        <div>
-                          <label htmlFor={`contribution-${goal.id}`}>
-                            Contribution amount
-                          </label>
-                          <input
-                            id={`contribution-${goal.id}`}
-                            type="number"
-                            min="0.01"
-                            step="0.01"
-                            value={contributionAmounts[goal.id] ?? ""}
-                            onChange={(event) =>
-                              setContributionAmounts((current) => ({
-                                ...current,
-                                [goal.id]: event.target.value,
-                              }))
-                            }
-                            placeholder="5000"
-                          />
-
-                          <button
-                            type="button"
-                            onClick={() => void handleContribution(goal)}
-                            disabled={
-                              activeAction === `contribute-${goal.id}` ||
-                              sourceAccounts.length === 0
-                            }
-                          >
-                            {activeAction === `contribute-${goal.id}`
-                              ? "Adding..."
-                              : "Contribute"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    <div>
-                      {isActive && (
-                        <button
-                          type="button"
-                          onClick={() => void handlePause(goal.id)}
-                          disabled={actionIsRunning}
-                        >
-                          {activeAction === `pause-${goal.id}`
-                            ? "Pausing..."
-                            : "Pause"}
-                        </button>
-                      )}
-
-                      {isPaused && (
-                        <button
-                          type="button"
-                          onClick={() => void handleResume(goal.id)}
-                          disabled={actionIsRunning}
-                        >
-                          {activeAction === `resume-${goal.id}`
-                            ? "Resuming..."
-                            : "Resume"}
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => void handleDelete(goal.id)}
-                        disabled={actionIsRunning}
-                      >
-                        {activeAction === `delete-${goal.id}`
-                          ? "Deleting..."
-                          : "Delete"}
-                      </button>
+                <article className="goal-card" key={goal.id}>
+                  <div className="goal-card-top">
+                    <div className="goal-card-icon" aria-hidden="true">
+                      {isCompleted ? "✓" : "◎"}
                     </div>
 
-                    {isCompleted && <p>Goal completed.</p>}
-                  </article>
-                </li>
+                    <span
+                      className={`goal-status goal-status-${goal.status.toLowerCase()}`}
+                    >
+                      {goal.status === "COMPLETED"
+                        ? "Completed"
+                        : goal.status === "PAUSED"
+                          ? "Paused"
+                          : goal.status === "ACTIVE"
+                            ? "In progress"
+                            : goal.status}
+                    </span>
+                  </div>
+
+                  <h4 className="goal-card-title">{goal.name}</h4>
+
+                  <div className="goal-amounts">
+                    <p className="goal-current-amount">
+                      ₹{formatAmount(goal.currentAmount)}
+                    </p>
+                    <p className="goal-target-amount">
+                      of ₹{formatAmount(goal.targetAmount)}
+                    </p>
+                  </div>
+
+                  <div
+                    className="goal-progress-track"
+                    role="progressbar"
+                    aria-label={`${goal.name} progress`}
+                    aria-valuenow={Number(progress.toFixed(1))}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <div
+                      className={`goal-progress-fill${isCompleted ? " goal-progress-complete" : ""}`}
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+
+                  <div className="goal-progress-labels">
+                    <span>{progress.toFixed(1)}% saved</span>
+                    <span>
+                      {isCompleted
+                        ? "Target reached"
+                        : `₹${formatAmount(remaining)} to go`}
+                    </span>
+                  </div>
+
+                  <div className="goal-card-date">
+                    <span className="goal-detail-label">Target date</span>
+                    <span className="goal-detail-value">
+                      {formatDate(goal.targetDate)}
+                    </span>
+                  </div>
+
+                  {isActive && (
+                    <div className="goal-contribution">
+                      <label htmlFor={`source-account-${goal.id}`}>
+                        From account
+                      </label>
+
+                      <select
+                        id={`source-account-${goal.id}`}
+                        value={selectedSourceAccounts[goal.id] ?? ""}
+                        onChange={(event) =>
+                          setSelectedSourceAccounts((current) => ({
+                            ...current,
+                            [goal.id]: event.target.value,
+                          }))
+                        }
+                        disabled={
+                          sourceAccounts.length === 0 || actionIsRunning
+                        }
+                      >
+                        <option value="">Select an account</option>
+                        {sourceAccounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.name} ({account.type} · {account.currency})
+                          </option>
+                        ))}
+                      </select>
+
+                      {sourceAccounts.length === 0 && (
+                        <p className="goal-field-hint">
+                          Create an eligible INR bank, cash, or investment
+                          account before contributing.
+                        </p>
+                      )}
+
+                      <label htmlFor={`contribution-${goal.id}`}>
+                        Contribution amount (₹)
+                      </label>
+
+                      <div className="goal-contribution-row">
+                        <input
+                          id={`contribution-${goal.id}`}
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={contributionAmounts[goal.id] ?? ""}
+                          onChange={(event) =>
+                            setContributionAmounts((current) => ({
+                              ...current,
+                              [goal.id]: event.target.value,
+                            }))
+                          }
+                          placeholder="e.g. 5000"
+                          disabled={actionIsRunning}
+                        />
+
+                        <button
+                          type="button"
+                          className="goals-primary-button goal-contribute-button"
+                          onClick={() => void handleContribution(goal)}
+                          disabled={
+                            actionIsRunning || sourceAccounts.length === 0
+                          }
+                        >
+                          {activeAction === `contribute-${goal.id}`
+                            ? "Adding..."
+                            : "Contribute"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="goal-card-actions">
+                    {isActive && (
+                      <button
+                        type="button"
+                        className="goal-secondary-button"
+                        onClick={() => void handlePause(goal.id)}
+                        disabled={actionIsRunning}
+                      >
+                        {activeAction === `pause-${goal.id}`
+                          ? "Pausing..."
+                          : "Pause goal"}
+                      </button>
+                    )}
+
+                    {isPaused && (
+                      <button
+                        type="button"
+                        className="goal-secondary-button"
+                        onClick={() => void handleResume(goal.id)}
+                        disabled={actionIsRunning}
+                      >
+                        {activeAction === `resume-${goal.id}`
+                          ? "Resuming..."
+                          : "Resume goal"}
+                      </button>
+                    )}
+
+                    {isCompleted && (
+                      <button
+                        type="button"
+                        className="goal-secondary-button"
+                        onClick={() => void handleArchive(goal.id)}
+                        disabled={actionIsRunning}
+                      >
+                        {activeAction === `archive-${goal.id}`
+                          ? "Archiving..."
+                          : "Archive"}
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      className="goal-delete-button"
+                      onClick={() => void handleDelete(goal.id)}
+                      disabled={actionIsRunning}
+                    >
+                      {activeAction === `delete-${goal.id}`
+                        ? "Deleting..."
+                        : "Delete"}
+                    </button>
+                  </div>
+                </article>
               );
             })}
-          </ul>
+          </div>
         )}
       </section>
+
+      <section className="goals-content">
+        <div className="goals-section-heading">
+          <div>
+            <h3>Archived goals</h3>
+            <p>Completed milestones you've chosen to put away.</p>
+          </div>
+
+          <button
+            type="button"
+            className="goal-secondary-button"
+            onClick={() => setShowArchivedGoals((current) => !current)}
+          >
+            {showArchivedGoals
+              ? "Hide archived"
+              : `View archived (${archivedGoals.length})`}
+          </button>
+        </div>
+
+        {showArchivedGoals &&
+          (archivedGoals.length === 0 ? (
+            <div className="goals-empty-state">
+              <h3>No archived goals</h3>
+              <p>Goals you archive will appear here.</p>
+            </div>
+          ) : (
+            <div className="goals-grid">
+              {archivedGoals.map((goal) => (
+                <article className="goal-card" key={goal.id}>
+                  <div className="goal-card-top">
+                    <div className="goal-card-icon" aria-hidden="true">
+                      ✓
+                    </div>
+                    <span className="goal-status goal-status-completed">
+                      Archived
+                    </span>
+                  </div>
+
+                  <h4 className="goal-card-title">{goal.name}</h4>
+
+                  <div className="goal-amounts">
+                    <p className="goal-current-amount">
+                      ₹{formatAmount(goal.currentAmount)}
+                    </p>
+                    <p className="goal-target-amount">
+                      of ₹{formatAmount(goal.targetAmount)}
+                    </p>
+                  </div>
+
+                  <div className="goal-card-date">
+                    <span className="goal-detail-label">Target date</span>
+                    <span className="goal-detail-value">
+                      {formatDate(goal.targetDate)}
+                    </span>
+                  </div>
+
+                  <div className="goal-card-actions">
+                    <button
+                      type="button"
+                      className="goal-secondary-button"
+                      onClick={() => void handleUnarchive(goal.id)}
+                      disabled={activeAction !== null}
+                    >
+                      {activeAction === `unarchive-${goal.id}`
+                        ? "Restoring..."
+                        : "Unarchive"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ))}
+      </section>
+
+      {isCreateModalOpen && (
+        <div
+          className="goal-modal-overlay"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeCreateModal();
+            }
+          }}
+        >
+          <section
+            className="goal-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="goal-modal-title"
+          >
+            <header className="goal-modal-header">
+              <div>
+                <span className="goals-eyebrow">NEW SAVINGS MILESTONE</span>
+                <h3 id="goal-modal-title">Create a goal</h3>
+                <p>Give your next milestone a name, amount, and deadline.</p>
+              </div>
+
+              <button
+                type="button"
+                className="goal-modal-close"
+                onClick={closeCreateModal}
+                disabled={isCreating}
+                aria-label="Close create goal dialog"
+              >
+                ×
+              </button>
+            </header>
+
+            <form className="goal-modal-form" onSubmit={handleCreateGoal}>
+              <div className="goal-form-field">
+                <label htmlFor="goal-name">Goal name</label>
+                <input
+                  id="goal-name"
+                  type="text"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="e.g. Emergency fund"
+                  maxLength={100}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="goal-form-field">
+                <label htmlFor="goal-target-amount">Target amount (₹)</label>
+                <input
+                  id="goal-target-amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={targetAmount}
+                  onChange={(event) => setTargetAmount(event.target.value)}
+                  placeholder="e.g. 100000"
+                  required
+                />
+              </div>
+
+              <div className="goal-form-field">
+                <label htmlFor="goal-target-date">Target date</label>
+                <input
+                  id="goal-target-date"
+                  type="date"
+                  value={targetDate}
+                  onChange={(event) => setTargetDate(event.target.value)}
+                  min={new Date().toLocaleDateString("en-CA")}
+                  required
+                />
+              </div>
+
+              <div className="goal-modal-actions">
+                <button
+                  type="button"
+                  className="goal-secondary-button"
+                  onClick={closeCreateModal}
+                  disabled={isCreating}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="goals-primary-button"
+                  disabled={isCreating}
+                >
+                  {isCreating ? "Creating..." : "Create goal"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

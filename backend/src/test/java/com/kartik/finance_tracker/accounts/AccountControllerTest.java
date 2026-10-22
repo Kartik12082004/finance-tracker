@@ -1,6 +1,7 @@
 package com.kartik.finance_tracker.accounts;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -79,7 +80,9 @@ class AccountControllerTest {
                 any(String.class),
                 any(AccountType.class),
                 any(String.class),
-                any(BigDecimal.class)
+                any(BigDecimal.class),
+                nullable(BigDecimal.class),
+                nullable(UUID.class)
         )).thenReturn(account);
 
         // The API should return 201 when an account is successfully created.
@@ -106,7 +109,9 @@ class AccountControllerTest {
                 "HDFC Savings",
                 AccountType.BANK,
                 "INR",
-                openingBalance
+                openingBalance,
+                null,
+                null
         );
     }
 
@@ -330,7 +335,9 @@ class AccountControllerTest {
                 accountId,
                 "SBI Savings",
                 AccountType.BANK,
-                "INR"
+                "INR",
+                null,
+                null
         )).thenReturn(account);
 
         // The API should return the updated account after a successful PUT.
@@ -356,7 +363,9 @@ class AccountControllerTest {
                 accountId,
                 "SBI Savings",
                 AccountType.BANK,
-                "INR"
+                "INR",
+                null,
+                null
         );
     }
 
