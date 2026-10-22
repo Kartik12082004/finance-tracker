@@ -375,6 +375,31 @@ export default function Goals({ onFinanceDataChanged }: GoalsProps) {
     );
   }
 
+  if (loadError) {
+    return (
+      <section className="goals-page">
+        <header className="goals-page-header">
+          <div className="goals-page-heading">
+            <span className="goals-eyebrow">PLAN WITH PURPOSE</span>
+            <h2>Goals</h2>
+            <p>Turn your savings plans into milestones you can track.</p>
+          </div>
+        </header>
+        <div className="goals-alert" role="alert">
+          <p>{loadError}</p>
+          <button
+            type="button"
+            className="goals-secondary-button"
+            onClick={() => setRetryKey((current) => current + 1)}
+            disabled={isLoading}
+          >
+            Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   const sourceAccounts = getEligibleSourceAccounts(accounts);
 
   function closeCreateModal() {

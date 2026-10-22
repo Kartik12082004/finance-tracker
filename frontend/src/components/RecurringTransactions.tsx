@@ -297,6 +297,31 @@ export default function RecurringTransactions() {
       </section>
     );
   }
+  if (loadError) {
+    return (
+      <section className="recurring-page">
+        <header className="recurring-heading">
+          <div>
+            <h2>Recurring Transactions</h2>
+            <p className="recurring-subtitle">
+              Manage scheduled monthly income and expenses in one place.
+            </p>
+          </div>
+        </header>
+        <div className="recurring-load-error" role="alert">
+          <p>{loadError}</p>
+          <button
+            type="button"
+            className="recurring-secondary-button"
+            onClick={() => setRetryKey((current) => current + 1)}
+            disabled={isLoading}
+          >
+            Retry loading recurring transactions
+          </button>
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="recurring-page">
       <header className="recurring-heading">

@@ -122,8 +122,17 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
   }, [selectedYear, selectedMonth, refreshKey, retryKey]);
 
   async function refreshBudgets() {
-    const updatedBudgets = await getBudgets(selectedYear, selectedMonth);
-    setBudgets(updatedBudgets);
+    try {
+      const updatedBudgets = await getBudgets(selectedYear, selectedMonth);
+      setBudgets(updatedBudgets);
+    } catch {
+      setError(
+        "Your budget change was saved, but the latest budgets could not be loaded. Use Retry to refresh the displayed data.",
+      );
+      setLoadError(
+        "Your budget change was saved, but the latest budgets could not be loaded. Retry to reload.",
+      );
+    }
   }
 
   function clearEditing() {
@@ -285,6 +294,33 @@ export default function Budgets({ refreshKey = 0 }: BudgetsProps) {
           <p>Loading your budgets...</p>
         </div>
       </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <section className="budgets-page">
+        <header className="budgets-header">
+          <div>
+            <p className="eyebrow">Plan with purpose</p>
+            <h2>Budgets</h2>
+            <p className="budgets-subtitle">
+              Keep your spending on track, one month at a time.
+            </p>
+          </div>
+        </header>
+        <div className="budgets-error" role="alert">
+          <p>{loadError}</p>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setRetryKey((current) => current + 1)}
+            disabled={isLoading}
+          >
+            Retry
+          </button>
+        </div>
+      </section>
     );
   }
 

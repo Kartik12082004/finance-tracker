@@ -170,8 +170,14 @@ export default function Investments({ accounts }: InvestmentsProps) {
   }, [retryKey]);
 
   async function refreshPortfolio() {
-    const updatedPortfolio = await getPortfolio();
-    setPortfolio(updatedPortfolio);
+    try {
+      const updatedPortfolio = await getPortfolio();
+      setPortfolio(updatedPortfolio);
+    } catch {
+      setError(
+        "Your investment change was saved, but the portfolio could not be refreshed. Reload the portfolio to verify the latest values.",
+      );
+    }
   }
 
   async function handleCreateInvestment(event: FormEvent<HTMLFormElement>) {
@@ -458,6 +464,36 @@ export default function Investments({ accounts }: InvestmentsProps) {
         <div className="investments-loading" role="status">
           <span className="investments-loading-indicator" />
           <p>Loading your portfolio...</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <section className="investments-page">
+        <header className="investments-page-header">
+          <div>
+            <p className="investments-eyebrow">Portfolio</p>
+            <h2>Investments</h2>
+            <p className="investments-subtitle">
+              Track your holdings and investment activity.
+            </p>
+          </div>
+        </header>
+        <div className="investment-alert" role="alert">
+          <div>
+            <strong>Portfolio unavailable</strong>
+            <p>{loadError}</p>
+          </div>
+          <button
+            type="button"
+            className="investment-button investment-button-secondary"
+            onClick={() => setRetryKey((current) => current + 1)}
+            disabled={isLoading}
+          >
+            Retry
+          </button>
         </div>
       </section>
     );

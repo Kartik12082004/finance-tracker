@@ -211,8 +211,12 @@ function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
-  const [isLoadingFinanceData, setIsLoadingFinanceData] = useState(false);
+  const [isLoadingFinanceData, setIsLoadingFinanceData] = useState(
+    () => getAuthSession() !== null,
+  );
+  const [hasLoadedFinanceData, setHasLoadedFinanceData] = useState(false);
   const [financeDataError, setFinanceDataError] = useState("");
+  const [financeDataNotice, setFinanceDataNotice] = useState("");
   const [financeDataRefreshKey, setFinanceDataRefreshKey] = useState(0);
 
   const [duplicateTransaction, setDuplicateTransaction] =
@@ -344,6 +348,7 @@ function App() {
         setAccountBalances(accountBalancesFromApi);
         setCategories(categoriesFromApi);
         setTransactions(transactionsFromApi);
+        setHasLoadedFinanceData(true);
       } catch (error) {
         if (cancelled) return;
 
@@ -359,6 +364,7 @@ function App() {
           setAccountBalances([]);
           setCategories([]);
           setTransactions([]);
+          setHasLoadedFinanceData(false);
           return;
         }
 
@@ -410,12 +416,20 @@ function App() {
   function handleLogin(response: AuthResponse) {
     saveAuthSession(response);
     setAuthResponse(response);
+    setHasLoadedFinanceData(false);
+    setIsLoadingFinanceData(true);
+    setFinanceDataError("");
+    setFinanceDataNotice("");
     navigate("/dashboard", { replace: true });
   }
 
   function handleRegister(response: AuthResponse) {
     saveAuthSession(response);
     setAuthResponse(response);
+    setHasLoadedFinanceData(false);
+    setIsLoadingFinanceData(true);
+    setFinanceDataError("");
+    setFinanceDataNotice("");
     navigate("/dashboard", { replace: true });
   }
 
@@ -484,9 +498,27 @@ function App() {
     setAccountBalances([]);
     setCategories([]);
     setTransactions([]);
+    setHasLoadedFinanceData(false);
+    setIsLoadingFinanceData(false);
+    setFinanceDataError("");
+    setFinanceDataNotice("");
     setAccountLinkStatus(null);
     setAccountLinkMessage("");
     navigate("/login", { replace: true });
+  }
+
+  async function refreshBalancesAfterMutation() {
+    setFinanceDataNotice("");
+    try {
+      const updatedBalances = await getAccountBalances();
+      setAccountBalances(updatedBalances);
+    } catch {
+      setFinanceDataNotice(
+        "Your change was saved, but balances could not be refreshed. The displayed values may be stale; use Reload finance data to try again.",
+      );
+    } finally {
+      setDashboardRefreshKey((current) => current + 1);
+    }
   }
 
   async function addAccount(
@@ -512,9 +544,7 @@ function App() {
 
     setAccounts((current) => [...current, createdAccount]);
 
-    const updatedBalances = await getAccountBalances();
-    setAccountBalances(updatedBalances);
-    setDashboardRefreshKey((current) => current + 1);
+    await refreshBalancesAfterMutation();
   }
 
   async function updateExistingAccount(
@@ -543,9 +573,7 @@ function App() {
       ),
     );
 
-    const updatedBalances = await getAccountBalances();
-    setAccountBalances(updatedBalances);
-    setDashboardRefreshKey((current) => current + 1);
+    await refreshBalancesAfterMutation();
   }
 
   async function removeAccount(accountId: string) {
@@ -559,20 +587,26 @@ function App() {
       currentAccounts.filter((account) => account.id !== accountId),
     );
 
-    const updatedBalances = await getAccountBalances();
-    setAccountBalances(updatedBalances);
-    setDashboardRefreshKey((current) => current + 1);
+    await refreshBalancesAfterMutation();
   }
 
   async function refreshTransactions() {
-    const [transactionsFromApi, accountBalancesFromApi] = await Promise.all([
-      getTransactions(),
-      getAccountBalances(),
-    ]);
+    setFinanceDataNotice("");
+    try {
+      const [transactionsFromApi, accountBalancesFromApi] = await Promise.all([
+        getTransactions(),
+        getAccountBalances(),
+      ]);
 
-    setTransactions(transactionsFromApi);
-    setAccountBalances(accountBalancesFromApi);
-    setDashboardRefreshKey((current) => current + 1);
+      setTransactions(transactionsFromApi);
+      setAccountBalances(accountBalancesFromApi);
+    } catch {
+      setFinanceDataNotice(
+        "The change was saved, but transactions or balances could not be refreshed. The displayed data may be stale; use Reload finance data to try again.",
+      );
+    } finally {
+      setDashboardRefreshKey((current) => current + 1);
+    }
   }
 
   async function refreshGoalRelatedFinanceData() {
@@ -590,10 +624,17 @@ function App() {
   }
 
   async function refreshCategories() {
-    const categoriesFromApi = await getCategories();
-
-    setCategories(categoriesFromApi);
-    setDashboardRefreshKey((current) => current + 1);
+    setFinanceDataNotice("");
+    try {
+      const categoriesFromApi = await getCategories();
+      setCategories(categoriesFromApi);
+    } catch {
+      setFinanceDataNotice(
+        "The category change was saved, but categories could not be refreshed. Reload finance data to try again.",
+      );
+    } finally {
+      setDashboardRefreshKey((current) => current + 1);
+    }
   }
 
   async function handleVoidTransaction(transactionId: string) {
@@ -1115,58 +1156,103 @@ function App() {
         </header>
 
         <div className="content-wrapper">
-          {isLoadingFinanceData && (
-            <p role="status">Loading your finance data...</p>
+          {!hasLoadedFinanceData ? (
+            <section className="app-data-state" aria-live="polite">
+              {isLoadingFinanceData ? (
+                <>
+                  <span className="app-loading-spinner" aria-hidden="true" />
+                  <h2>Loading your finance data</h2>
+                  <p>
+                    Getting your accounts, categories, and transactions ready…
+                  </p>
+                </>
+              ) : (
+                <div className="app-load-error" role="alert">
+                  <h2>We couldn’t load your finance data</h2>
+                  <p>
+                    {financeDataError || "Check your connection and try again."}
+                  </p>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() =>
+                      setFinanceDataRefreshKey((current) => current + 1)
+                    }
+                    disabled={isLoadingFinanceData}
+                  >
+                    {isLoadingFinanceData ? "Retrying…" : "Retry loading data"}
+                  </button>
+                </div>
+              )}
+            </section>
+          ) : (
+            <>
+              {financeDataNotice && (
+                <div className="app-refresh-notice" role="status">
+                  <p>{financeDataNotice}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFinanceDataNotice("");
+                      setFinanceDataRefreshKey((current) => current + 1);
+                    }}
+                    disabled={isLoadingFinanceData}
+                  >
+                    {isLoadingFinanceData
+                      ? "Reloading…"
+                      : "Reload finance data"}
+                  </button>
+                  <button
+                    type="button"
+                    className="app-notice-dismiss"
+                    onClick={() => setFinanceDataNotice("")}
+                    aria-label="Dismiss refresh notice"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              {accountLinkMessage && (
+                <p role="status" aria-live="polite">
+                  {accountLinkMessage}
+                </p>
+              )}
+
+              {activeSection === "dashboard" ? (
+                <div className="page-header">
+                  <div>
+                    <p className="page-kicker">Overview</p>
+                    <h1>Dashboard</h1>
+                  </div>
+
+                  <div className="welcome-message">
+                    Welcome back, <strong>{authResponse.name}</strong>
+                  </div>
+                </div>
+              ) : null}
+
+              <Routes>
+                <Route path="/dashboard" element={renderPage()} />
+                <Route path="/accounts" element={renderPage()} />
+                <Route path="/transactions" element={renderPage()} />
+                <Route path="/categories" element={renderPage()} />
+                <Route path="/budgets" element={renderPage()} />
+                <Route path="/goals" element={renderPage()} />
+                <Route path="/recurring" element={renderPage()} />
+                <Route path="/investments" element={renderPage()} />
+                <Route path="/settings" element={renderPage()} />
+                <Route path="/oauth/callback" element={renderPage()} />
+                <Route
+                  path="/"
+                  element={<Navigate to="/dashboard" replace />}
+                />
+                <Route
+                  path="*"
+                  element={<Navigate to="/dashboard" replace />}
+                />
+              </Routes>
+            </>
           )}
-
-          {financeDataError && (
-            <div role="alert">
-              <p>{financeDataError}</p>
-              <button
-                type="button"
-                onClick={() =>
-                  setFinanceDataRefreshKey((current) => current + 1)
-                }
-                disabled={isLoadingFinanceData}
-              >
-                {isLoadingFinanceData ? "Retrying..." : "Retry loading data"}
-              </button>
-            </div>
-          )}
-
-          {accountLinkMessage && (
-            <p role="status" aria-live="polite">
-              {accountLinkMessage}
-            </p>
-          )}
-
-          {activeSection === "dashboard" ? (
-            <div className="page-header">
-              <div>
-                <p className="page-kicker">Overview</p>
-                <h1>Dashboard</h1>
-              </div>
-
-              <div className="welcome-message">
-                Welcome back, <strong>{authResponse.name}</strong>
-              </div>
-            </div>
-          ) : null}
-
-          <Routes>
-            <Route path="/dashboard" element={renderPage()} />
-            <Route path="/accounts" element={renderPage()} />
-            <Route path="/transactions" element={renderPage()} />
-            <Route path="/categories" element={renderPage()} />
-            <Route path="/budgets" element={renderPage()} />
-            <Route path="/goals" element={renderPage()} />
-            <Route path="/recurring" element={renderPage()} />
-            <Route path="/investments" element={renderPage()} />
-            <Route path="/settings" element={renderPage()} />
-            <Route path="/oauth/callback" element={renderPage()} />
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
         </div>
       </main>
     </div>

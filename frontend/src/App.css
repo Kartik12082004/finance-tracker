@@ -10091,3 +10091,337 @@
     transition: none;
   }
 }
+
+/* Shared application-level loading and refresh feedback */
+.app-data-state {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.8rem;
+  min-height: min(55vh, 34rem);
+  padding: clamp(1.5rem, 4vw, 3rem);
+  text-align: center;
+}
+
+.app-data-state h2,
+.app-load-error h2 {
+  margin: 0;
+  color: var(--text-primary, inherit);
+}
+
+.app-data-state p,
+.app-load-error p {
+  max-width: 36rem;
+  margin: 0;
+  color: var(--text-secondary, #64748b);
+  line-height: 1.6;
+}
+
+.app-loading-spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid rgba(100, 116, 139, 0.2);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: app-loading-spin 0.75s linear infinite;
+}
+
+@keyframes app-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.app-load-error,
+.app-refresh-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid #f1c7a8;
+  border-radius: 0.85rem;
+  background: #fff8f2;
+  color: #7c2d12;
+}
+
+.app-load-error {
+  flex-direction: column;
+  max-width: 42rem;
+}
+
+.app-load-error p,
+.app-refresh-notice p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.app-load-error button,
+.app-refresh-notice button {
+  min-height: 2.4rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid currentColor;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-load-error button:disabled,
+.app-refresh-notice button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.app-refresh-notice {
+  margin-bottom: 1rem;
+}
+
+.app-refresh-notice .app-notice-dismiss {
+  min-width: 2rem;
+  margin-left: auto;
+  padding: 0.25rem 0.55rem;
+  font-size: 1.25rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-loading-spinner {
+    animation-duration: 1.5s;
+  }
+}
+
+.recurring-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 1rem 1.15rem;
+  border: 1px solid #f1c7a8;
+  border-radius: 0.85rem;
+  background: #fff8f2;
+  color: #7c2d12;
+}
+
+.recurring-load-error p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.recurring-load-error button {
+  min-height: 2.4rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid currentColor;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   Finance Tracker shared design-system alignment
+   -------------------------------------------------------------------------- */
+:root {
+  --ft-page-title-size: clamp(1.55rem, 2.2vw, 2rem);
+  --ft-section-title-size: 1.05rem;
+  --ft-body-line-height: 1.55;
+  --ft-control-height: 42px;
+  --ft-control-radius: var(--radius-sm, 8px);
+  --ft-page-gap: 24px;
+}
+
+/* Shared typography and page-header spacing. */
+.dashboard-page,
+.accounts-page,
+.transactions-page,
+.categories-page,
+.budgets-page,
+.goals-page,
+.investments-page,
+.recurring-page,
+.settings-page {
+  color: var(--text-primary);
+  line-height: var(--ft-body-line-height);
+}
+
+.dashboard-header,
+.budgets-header,
+.goals-page-header,
+.investments-page-header,
+.recurring-heading,
+.settings-page-header,
+.account-page-header {
+  margin-bottom: var(--ft-page-gap);
+}
+
+.dashboard-header h1,
+.budgets-header h1,
+.goals-page-header h1,
+.investments-page-header h1,
+.recurring-heading h1,
+.settings-page-header h1,
+.account-page-header h1 {
+  color: var(--text-primary);
+  font-size: var(--ft-page-title-size);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.dashboard-subtitle,
+.budgets-subtitle,
+.goals-page-header p,
+.investments-subtitle,
+.recurring-subtitle,
+.settings-page-description,
+.account-page-header .accounts-subtitle {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* Common card surfaces use the same border and shadow language. */
+.dashboard-card,
+.page-section,
+.budget-card,
+.goal-card,
+.investment-card,
+.recurring-card,
+.settings-card,
+.account-card,
+.transaction-card,
+.category-card {
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Consistent action controls while retaining page-specific semantics. */
+.primary-button,
+.secondary-button,
+.goals-primary-button,
+.recurring-primary-button,
+.investment-button-primary,
+.settings-button-primary {
+  min-height: var(--ft-control-height);
+  border-radius: var(--ft-control-radius);
+  font-weight: 600;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.primary-button,
+.goals-primary-button,
+.recurring-primary-button,
+.investment-button-primary,
+.settings-button-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.primary-button:hover:not(:disabled),
+.goals-primary-button:hover:not(:disabled),
+.recurring-primary-button:hover:not(:disabled),
+.investment-button-primary:hover:not(:disabled),
+.settings-button-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.secondary-button {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.primary-button:focus-visible,
+.secondary-button:focus-visible,
+.goals-primary-button:focus-visible,
+.recurring-primary-button:focus-visible,
+.investment-button-primary:focus-visible,
+.settings-button-primary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.goals-primary-button:disabled,
+.recurring-primary-button:disabled,
+.investment-button-primary:disabled,
+.settings-button-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+}
+
+/* Form controls inherit the shared brand accent and focus treatment. */
+.dashboard-page input,
+.dashboard-page select,
+.dashboard-page textarea,
+.accounts-page input,
+.accounts-page select,
+.accounts-page textarea,
+.transactions-page input,
+.transactions-page select,
+.transactions-page textarea,
+.categories-page input,
+.categories-page select,
+.categories-page textarea,
+.budgets-page input,
+.budgets-page select,
+.budgets-page textarea,
+.goals-page input,
+.goals-page select,
+.goals-page textarea,
+.investments-page input,
+.investments-page select,
+.investments-page textarea,
+.recurring-page input,
+.recurring-page select,
+.recurring-page textarea,
+.settings-page input,
+.settings-page select,
+.settings-page textarea {
+  accent-color: var(--accent);
+  font-family: inherit;
+}
+
+:is(
+    .dashboard-page,
+    .accounts-page,
+    .transactions-page,
+    .categories-page,
+    .budgets-page,
+    .goals-page,
+    .investments-page,
+    .recurring-page,
+    .settings-page
+  )
+  :is(input, select, textarea):focus-visible {
+  outline-color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  :root {
+    --ft-page-gap: 18px;
+    --ft-control-height: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
